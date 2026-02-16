@@ -1,0 +1,1 @@
+// Obsoleto: Utilizar functions/api/admin/me.ts

@@ -1,0 +1,1 @@
+// ARCHIVO ELIMINADO: La aplicación ahora utiliza exclusivamente apiService.ts

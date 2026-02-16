@@ -1,0 +1,1 @@
+// Ruta delegada a functions/api/admin/properties/index.ts
