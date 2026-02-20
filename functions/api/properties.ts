@@ -1,1 +1,0 @@
-// Ruta delegada a functions/api/properties/index.ts para evitar colisiones 404

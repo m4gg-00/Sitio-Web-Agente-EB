@@ -1,1 +1,0 @@
-// Ruta delegada a functions/api/admin/leads/index.ts
