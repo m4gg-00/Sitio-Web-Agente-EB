@@ -18,10 +18,12 @@ import {
 import { apiService } from '../../services/apiService';
 import { Property, SiteContent, Lead } from '../../types';
 
+type Tab = 'properties' | 'profile' | 'leads' | 'reviews';
+
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'properties' | 'profile' | 'leads' | 'reviews'>('properties');
+  const [activeTab, setActiveTab] = useState<Tab>('properties');
 
   const [properties, setProperties] = useState<Property[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -30,9 +32,11 @@ const AdminDashboard: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(true);
 
-  // Modal de Propiedades
+  // Modal Propiedades
   const [isEditing, setIsEditing] = useState(false);
   const [currentProp, setCurrentProp] = useState<Partial<Property>>({});
+  const [amenitiesText, setAmenitiesText] = useState<string>(''); // UI helper
+  const [imagesText, setImagesText] = useState<string>(''); // UI helper (multi URLs)
 
   // UI
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -80,8 +84,8 @@ const AdminDashboard: React.FC = () => {
   const handleApproveReview = async (id: string) => {
     try {
       await apiService.approveTestimonial(id);
-      setTestimonials((prev) => prev.map((t) => (t.id === id ? { ...t, approved: true } : t)));
-    } catch (err) {
+      setTestimonials(prev => prev.map(t => (t.id === id ? { ...t, approved: true } : t)));
+    } catch {
       alert('Error al aprobar.');
     }
   };
@@ -92,22 +96,133 @@ const AdminDashboard: React.FC = () => {
     try {
       if (confirmDelete.type === 'property') {
         await apiService.deleteProperty(confirmDelete.id);
-        setProperties((prev) => prev.filter((p) => p.id !== confirmDelete.id));
+        setProperties(prev => prev.filter(p => p.id !== confirmDelete.id));
       } else if (confirmDelete.type === 'lead') {
         await apiService.deleteLead(confirmDelete.id);
-        setLeads((prev) => prev.filter((l) => l.id !== confirmDelete.id));
+        setLeads(prev => prev.filter(l => l.id !== confirmDelete.id));
       } else if (confirmDelete.type === 'review') {
         await apiService.deleteTestimonial(confirmDelete.id);
-        // borrado lógico en UI
-        setTestimonials((prev) =>
-          prev.map((t) => (t.id === confirmDelete.id ? { ...t, status: 'deleted', approved: false } : t))
+        setTestimonials(prev =>
+          prev.map(t => (t.id === confirmDelete.id ? { ...t, status: 'deleted', approved: false } : t))
         );
       }
-    } catch (err) {
+    } catch {
       alert('Error al eliminar.');
     }
 
     setConfirmDelete(null);
+  };
+
+  const openNewPropertyModal = () => {
+    const base: any = {
+      title: '',
+      city: 'Tijuana',
+      zone: '',
+      price: 0,
+      currency: 'MXN',
+      valuation: null,
+      type: 'Casa',
+      status: 'Disponible',
+      bedrooms: null,
+      bathrooms: null,
+      parking: null,
+      description: '',
+      amenities: [],
+      videoUrl: null,
+      mapsLink: null,
+      images: [],
+      isPublished: true
+    };
+
+    setCurrentProp(base);
+    setAmenitiesText('');
+    setImagesText('');
+    setIsEditing(true);
+  };
+
+  const openEditPropertyModal = (p: Property) => {
+    setCurrentProp(p as any);
+
+    const a = Array.isArray((p as any).amenities) ? (p as any).amenities : [];
+    setAmenitiesText(a.join(', '));
+
+    const imgs = Array.isArray((p as any).images) ? (p as any).images : [];
+    setImagesText(imgs.join('\n'));
+
+    setIsEditing(true);
+  };
+
+  const parseAmenities = (txt: string): string[] =>
+    txt
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+  const parseImages = (txt: string): string[] =>
+    txt
+      .split(/\r?\n|,/g)
+      .map(s => s.trim())
+      .filter(Boolean);
+
+  const saveProperty = async () => {
+    try {
+      // IMPORTANTÍSIMO: NUNCA mandar undefined a D1
+      const payload: any = {
+        // si existe id, se edita; si no, backend genera uno
+        id: (currentProp as any).id ?? null,
+
+        title: (currentProp as any).title ?? '',
+        city: (currentProp as any).city ?? 'Tijuana',
+        zone: (currentProp as any).zone ?? '',
+        price: Number((currentProp as any).price ?? 0),
+
+        currency: (currentProp as any).currency ?? 'MXN',
+        valuation:
+          (currentProp as any).valuation === '' || (currentProp as any).valuation === undefined
+            ? null
+            : (currentProp as any).valuation ?? null,
+
+        type: (currentProp as any).type ?? 'Casa',
+        status: (currentProp as any).status ?? 'Disponible',
+
+        bedrooms:
+          (currentProp as any).bedrooms === '' || (currentProp as any).bedrooms === undefined
+            ? null
+            : (currentProp as any).bedrooms ?? null,
+        bathrooms:
+          (currentProp as any).bathrooms === '' || (currentProp as any).bathrooms === undefined
+            ? null
+            : (currentProp as any).bathrooms ?? null,
+        parking:
+          (currentProp as any).parking === '' || (currentProp as any).parking === undefined
+            ? null
+            : (currentProp as any).parking ?? null,
+
+        description: (currentProp as any).description ?? '',
+
+        amenities: parseAmenities(amenitiesText),
+        images: parseImages(imagesText),
+
+        videoUrl: (currentProp as any).videoUrl ?? null,
+        mapsLink: (currentProp as any).mapsLink ?? null,
+
+        isPublished: Boolean((currentProp as any).isPublished ?? true),
+
+        // si backend lo pide, no le mandes undefined
+        createdAt: (currentProp as any).createdAt ?? null
+      };
+
+      // Limpieza extra para D1: undefined -> null
+      Object.keys(payload).forEach(k => {
+        if (payload[k] === undefined) payload[k] = null;
+      });
+
+      await apiService.saveProperty(payload);
+      await refreshData();
+      setIsEditing(false);
+    } catch (e: any) {
+      alert(e?.message || 'Error al guardar la propiedad');
+    }
   };
 
   if (isLoading) {
@@ -206,6 +321,7 @@ const AdminDashboard: React.FC = () => {
           >
             <Menu size={24} />
           </button>
+
           <button
             onClick={refreshData}
             className="p-2 bg-gray-200 dark:bg-gray-800 rounded-lg dark:text-white"
@@ -221,10 +337,7 @@ const AdminDashboard: React.FC = () => {
               <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tight">Propiedades</h2>
 
               <button
-                onClick={() => {
-                  setCurrentProp({ images: [], isPublished: true, amenities: [] });
-                  setIsEditing(true);
-                }}
+                onClick={openNewPropertyModal}
                 className="bg-[#800020] text-white px-6 py-2 rounded-xl font-bold shadow-lg hover:bg-[#600018]"
               >
                 Nueva Propiedad
@@ -237,37 +350,28 @@ const AdminDashboard: React.FC = () => {
                   No hay propiedades registradas aún. Haz clic en <b>Nueva Propiedad</b> para agregar la primera.
                 </div>
               ) : (
-                properties.map((p) => (
+                properties.map(p => (
                   <div
                     key={p.id}
                     className="bg-white dark:bg-gray-800 p-4 rounded-2xl flex items-center justify-between border dark:border-gray-700 shadow-sm"
                   >
                     <div className="flex items-center gap-4">
                       <img
-                        src={p.images?.[0] || ''}
+                        src={(p as any).images?.[0] || ''}
                         className="w-12 h-12 rounded-lg object-cover bg-gray-200"
                         alt=""
                       />
                       <div>
                         <div className="font-bold dark:text-white">{p.title}</div>
-                        <div className="text-xs text-gray-500">{p.city}</div>
+                        <div className="text-xs text-gray-500">{(p as any).city}</div>
                       </div>
                     </div>
 
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          setCurrentProp(p);
-                          setIsEditing(true);
-                        }}
-                        className="p-2 text-blue-500"
-                      >
+                      <button onClick={() => openEditPropertyModal(p)} className="p-2 text-blue-500">
                         <Edit size={18} />
                       </button>
-                      <button
-                        onClick={() => setConfirmDelete({ type: 'property', id: p.id })}
-                        className="p-2 text-red-500"
-                      >
+                      <button onClick={() => setConfirmDelete({ type: 'property', id: p.id })} className="p-2 text-red-500">
                         <Trash2 size={18} />
                       </button>
                     </div>
@@ -295,7 +399,7 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 gap-6">
-              {testimonials.map((t) => (
+              {testimonials.map(t => (
                 <div
                   key={t.id}
                   className={`p-6 rounded-3xl border shadow-sm transition-all ${t.status === 'deleted' ? 'opacity-50 grayscale' : ''
@@ -325,9 +429,7 @@ const AdminDashboard: React.FC = () => {
                         ))}
                       </div>
 
-                      <div className="text-[10px] text-gray-400 font-mono">
-                        {new Date(t.createdAt).toLocaleString()}
-                      </div>
+                      <div className="text-[10px] text-gray-400 font-mono">{new Date(t.createdAt).toLocaleString()}</div>
                     </div>
 
                     {!t.approved && t.status !== 'deleted' && (
@@ -388,7 +490,7 @@ const AdminDashboard: React.FC = () => {
                 No hay leads registrados.
               </p>
             ) : (
-              leads.map((l) => (
+              leads.map(l => (
                 <div
                   key={l.id}
                   className="bg-white dark:bg-gray-800 p-5 rounded-2xl border dark:border-gray-700 flex justify-between items-center shadow-sm"
@@ -410,7 +512,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* PERFIL (solo lectura, sin inventar métodos) */}
+        {/* PERFIL (solo lectura) */}
         {activeTab === 'profile' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -449,8 +551,8 @@ const AdminDashboard: React.FC = () => {
                 </div>
 
                 <div className="mt-6 text-xs text-gray-500">
-                  Si quieres que el perfil sea editable desde aquí, dime cómo se llama el método en tu apiService (por
-                  ejemplo: <b>updateProfile</b> / <b>saveProfile</b>) y te lo dejo completo.
+                  Si quieres que el perfil sea editable desde aquí, dime cómo se llama el método en tu apiService
+                  (por ejemplo: <b>updateProfile</b> / <b>saveProfile</b>) y te lo dejo completo.
                 </div>
               </div>
             )}
@@ -461,7 +563,7 @@ const AdminDashboard: React.FC = () => {
       {/* MODAL: Crear / Editar Propiedad */}
       {isEditing && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9998] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-2xl p-6 border dark:border-gray-700 shadow-2xl">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-3xl p-6 border dark:border-gray-700 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold dark:text-white">
                 {(currentProp as any)?.id ? 'Editar Propiedad' : 'Nueva Propiedad'}
@@ -479,8 +581,8 @@ const AdminDashboard: React.FC = () => {
                 <label className="text-sm font-semibold dark:text-white">Título</label>
                 <input
                   className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                  value={currentProp.title || ''}
-                  onChange={(e) => setCurrentProp((prev) => ({ ...prev, title: e.target.value }))}
+                  value={(currentProp as any).title ?? ''}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, title: e.target.value }))}
                 />
               </div>
 
@@ -488,8 +590,8 @@ const AdminDashboard: React.FC = () => {
                 <label className="text-sm font-semibold dark:text-white">Ciudad</label>
                 <select
                   className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                  value={(currentProp.city as any) || 'Tijuana'}
-                  onChange={(e) => setCurrentProp((prev) => ({ ...prev, city: e.target.value as any }))}
+                  value={(currentProp as any).city ?? 'Tijuana'}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, city: e.target.value as any }))}
                 >
                   <option value="Tijuana">Tijuana</option>
                   <option value="Rosarito">Rosarito</option>
@@ -500,8 +602,8 @@ const AdminDashboard: React.FC = () => {
                 <label className="text-sm font-semibold dark:text-white">Zona</label>
                 <input
                   className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                  value={currentProp.zone || ''}
-                  onChange={(e) => setCurrentProp((prev) => ({ ...prev, zone: e.target.value }))}
+                  value={(currentProp as any).zone ?? ''}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, zone: e.target.value }))}
                 />
               </div>
 
@@ -510,8 +612,35 @@ const AdminDashboard: React.FC = () => {
                 <input
                   type="number"
                   className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                  value={Number(currentProp.price || 0)}
-                  onChange={(e) => setCurrentProp((prev) => ({ ...prev, price: Number(e.target.value) }))}
+                  value={Number((currentProp as any).price ?? 0)}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, price: Number(e.target.value) }))}
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold dark:text-white">Moneda</label>
+                <select
+                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  value={(currentProp as any).currency ?? 'MXN'}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, currency: e.target.value }))}
+                >
+                  <option value="MXN">MXN</option>
+                  <option value="USD">USD</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold dark:text-white">Valoración (opcional)</label>
+                <input
+                  type="number"
+                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  value={(currentProp as any).valuation ?? ''}
+                  onChange={e =>
+                    setCurrentProp(prev => ({
+                      ...prev,
+                      valuation: e.target.value === '' ? null : Number(e.target.value)
+                    }))
+                  }
                 />
               </div>
 
@@ -519,8 +648,8 @@ const AdminDashboard: React.FC = () => {
                 <label className="text-sm font-semibold dark:text-white">Tipo</label>
                 <select
                   className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                  value={(currentProp.type as any) || 'Casa'}
-                  onChange={(e) => setCurrentProp((prev) => ({ ...prev, type: e.target.value as any }))}
+                  value={(currentProp as any).type ?? 'Casa'}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, type: e.target.value as any }))}
                 >
                   <option value="Casa">Casa</option>
                   <option value="Departamento">Departamento</option>
@@ -533,8 +662,8 @@ const AdminDashboard: React.FC = () => {
                 <label className="text-sm font-semibold dark:text-white">Estatus</label>
                 <select
                   className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                  value={(currentProp.status as any) || 'Disponible'}
-                  onChange={(e) => setCurrentProp((prev) => ({ ...prev, status: e.target.value as any }))}
+                  value={(currentProp as any).status ?? 'Disponible'}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, status: e.target.value as any }))}
                 >
                   <option value="Disponible">Disponible</option>
                   <option value="Apartada">Apartada</option>
@@ -542,30 +671,107 @@ const AdminDashboard: React.FC = () => {
                 </select>
               </div>
 
-              <div className="md:col-span-2">
-                <label className="text-sm font-semibold dark:text-white">Descripción</label>
-                <textarea
-                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white min-h-[120px]"
-                  value={currentProp.description || ''}
-                  onChange={(e) => setCurrentProp((prev) => ({ ...prev, description: e.target.value }))}
+              <div>
+                <label className="text-sm font-semibold dark:text-white">Recámaras (opcional)</label>
+                <input
+                  type="number"
+                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  value={(currentProp as any).bedrooms ?? ''}
+                  onChange={e =>
+                    setCurrentProp(prev => ({
+                      ...prev,
+                      bedrooms: e.target.value === '' ? null : Number(e.target.value)
+                    }))
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold dark:text-white">Baños (opcional)</label>
+                <input
+                  type="number"
+                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  value={(currentProp as any).bathrooms ?? ''}
+                  onChange={e =>
+                    setCurrentProp(prev => ({
+                      ...prev,
+                      bathrooms: e.target.value === '' ? null : Number(e.target.value)
+                    }))
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-semibold dark:text-white">Estacionamientos (opcional)</label>
+                <input
+                  type="number"
+                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  value={(currentProp as any).parking ?? ''}
+                  onChange={e =>
+                    setCurrentProp(prev => ({
+                      ...prev,
+                      parking: e.target.value === '' ? null : Number(e.target.value)
+                    }))
+                  }
                 />
               </div>
 
               <div className="md:col-span-2">
-                <label className="text-sm font-semibold dark:text-white">Imagen (URL)</label>
+                <label className="text-sm font-semibold dark:text-white">Descripción</label>
+                <textarea
+                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white min-h-[110px]"
+                  value={(currentProp as any).description ?? ''}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, description: e.target.value }))}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-sm font-semibold dark:text-white">Amenidades (separadas por coma)</label>
                 <input
                   className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
-                  value={currentProp.images?.[0] || ''}
-                  onChange={(e) => setCurrentProp((prev) => ({ ...prev, images: [e.target.value] }))}
-                  placeholder="https://..."
+                  value={amenitiesText}
+                  onChange={e => setAmenitiesText(e.target.value)}
+                  placeholder="Alberca, Patio, Seguridad, ..."
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-sm font-semibold dark:text-white">
+                  Imágenes (URLs, una por línea o separadas por coma)
+                </label>
+                <textarea
+                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white min-h-[90px]"
+                  value={imagesText}
+                  onChange={e => setImagesText(e.target.value)}
+                  placeholder="https://...\nhttps://..."
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-sm font-semibold dark:text-white">Video URL (opcional)</label>
+                <input
+                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  value={(currentProp as any).videoUrl ?? ''}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, videoUrl: e.target.value || null }))}
+                  placeholder="https://youtube.com/..."
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-sm font-semibold dark:text-white">Maps Link (opcional)</label>
+                <input
+                  className="w-full mt-1 p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  value={(currentProp as any).mapsLink ?? ''}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, mapsLink: e.target.value || null }))}
+                  placeholder="https://maps.google.com/..."
                 />
               </div>
 
               <div className="md:col-span-2 flex items-center gap-3">
                 <input
                   type="checkbox"
-                  checked={Boolean(currentProp.isPublished ?? true)}
-                  onChange={(e) => setCurrentProp((prev) => ({ ...prev, isPublished: e.target.checked }))}
+                  checked={Boolean((currentProp as any).isPublished ?? true)}
+                  onChange={e => setCurrentProp(prev => ({ ...prev, isPublished: e.target.checked }))}
                 />
                 <span className="text-sm dark:text-white">Publicada</span>
               </div>
@@ -580,23 +786,7 @@ const AdminDashboard: React.FC = () => {
               </button>
 
               <button
-                onClick={async () => {
-                  try {
-                    const payload: any = {
-                      ...currentProp,
-                      images: Array.isArray(currentProp.images) ? currentProp.images : [],
-                      amenities: Array.isArray((currentProp as any).amenities) ? (currentProp as any).amenities : [],
-                      price: Number(currentProp.price || 0),
-                      isPublished: Boolean(currentProp.isPublished ?? true)
-                    };
-
-                    await apiService.saveProperty(payload);
-                    await refreshData();
-                    setIsEditing(false);
-                  } catch (e: any) {
-                    alert(e?.message || 'Error al guardar la propiedad');
-                  }
-                }}
+                onClick={saveProperty}
                 className="px-6 py-2 rounded-xl bg-[#800020] text-white font-bold hover:bg-[#600018] shadow-lg"
               >
                 Guardar
