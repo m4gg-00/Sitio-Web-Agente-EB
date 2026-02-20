@@ -57,6 +57,20 @@ const emptyPropertyDraft = (): Property => ({
   isPublished: true
 });
 
+// ===== Helpers Leads (estilo demo) =====
+const formatDate = (iso?: string) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
+};
+
+const waLink = (phone?: string, text?: string) => {
+  const digits = (phone || '').replace(/\D/g, '');
+  const msg = encodeURIComponent(text || 'Hola, gracias por tu interés. ¿En qué puedo ayudarte?');
+  return digits ? `https://wa.me/52${digits}?text=${msg}` : '#';
+};
+
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
 
@@ -70,7 +84,7 @@ const AdminDashboard: React.FC = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDelete>(null);
 
-  // Modal editar/crear
+  // Modal editar/crear (PROPIEDADES) — se queda intacto
   const [isEditing, setIsEditing] = useState(false);
   const [savingProp, setSavingProp] = useState(false);
   const [currentProp, setCurrentProp] = useState<Property>(emptyPropertyDraft());
@@ -81,6 +95,25 @@ const AdminDashboard: React.FC = () => {
   // Perfil
   const [profileMsg, setProfileMsg] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
+
+  // ===== Leads (demo UI): selección + búsqueda =====
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [leadSearch, setLeadSearch] = useState('');
+
+  const selectedLead = useMemo(() => {
+    if (!selectedLeadId) return null;
+    return leads.find(l => l.id === selectedLeadId) || null;
+  }, [selectedLeadId, leads]);
+
+  const filteredLeads = useMemo(() => {
+    const q = leadSearch.trim().toLowerCase();
+    if (!q) return leads;
+
+    return leads.filter((l: any) => {
+      const hay = `${l.name || ''} ${l.phone || ''} ${l.email || ''} ${l.message || ''} ${l.propertyTitle || ''} ${l.cityInterest || ''} ${l.source || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [leads, leadSearch]);
 
   useEffect(() => {
     const init = async () => {
@@ -139,6 +172,7 @@ const AdminDashboard: React.FC = () => {
       } else if (confirmDelete.type === 'lead') {
         await apiService.deleteLead(confirmDelete.id);
         setLeads(prev => prev.filter(l => l.id !== confirmDelete.id));
+        if (selectedLeadId === confirmDelete.id) setSelectedLeadId(null);
       } else if (confirmDelete.type === 'review') {
         await apiService.deleteTestimonial(confirmDelete.id);
         setTestimonials(prev =>
@@ -240,9 +274,10 @@ const AdminDashboard: React.FC = () => {
       description: (draft.description || '').trim(),
       price: toNum(draft.price),
       currency: (draft.currency as any) === 'USD' ? 'USD' : 'MXN',
-      valuation: draft.valuation === undefined || draft.valuation === null || String(draft.valuation).trim() === ''
-        ? undefined
-        : toNum(draft.valuation),
+      valuation:
+        draft.valuation === undefined || draft.valuation === null || String(draft.valuation).trim() === ''
+          ? undefined
+          : toNum(draft.valuation),
       type: (TYPES.includes(draft.type) ? draft.type : 'Casa') as PropertyType,
       status: (STATUS.includes(draft.status) ? draft.status : 'Disponible') as PropertyStatus,
       bedrooms: clamp(toInt(draft.bedrooms), 0, 99),
@@ -288,7 +323,6 @@ const AdminDashboard: React.FC = () => {
         return;
       }
 
-      // Si es nueva y el id está vacío, apiService.saveProperty lo toma como POST (porque !property.id)
       await apiService.saveProperty(normalized);
 
       // Refrescar listado
@@ -297,9 +331,7 @@ const AdminDashboard: React.FC = () => {
     } catch (e: any) {
       console.error(e);
       setFormError(
-        e?.message
-          ? `Error al guardar: ${e.message}`
-          : 'Error al guardar. Revisa la consola y vuelve a intentar.'
+        e?.message ? `Error al guardar: ${e.message}` : 'Error al guardar. Revisa la consola y vuelve a intentar.'
       );
     } finally {
       setSavingProp(false);
@@ -339,10 +371,7 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col lg:flex-row transition-colors overflow-hidden">
       {isMobileSidebarOpen && (
-        <div
-          onClick={() => setIsMobileSidebarOpen(false)}
-          className="fixed inset-0 bg-black/50 z-[45] lg:hidden"
-        />
+        <div onClick={() => setIsMobileSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[45] lg:hidden" />
       )}
 
       <aside
@@ -406,10 +435,7 @@ const AdminDashboard: React.FC = () => {
           </nav>
 
           <div className="p-4 border-t border-white/10">
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-3 p-3 rounded-lg text-red-400 hover:bg-red-500/10"
-            >
+            <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-lg text-red-400 hover:bg-red-500/10">
               <LogOut size={20} /> <span>Cerrar Sesión</span>
             </button>
           </div>
@@ -418,27 +444,20 @@ const AdminDashboard: React.FC = () => {
 
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
         <div className="lg:hidden mb-4 flex justify-between items-center">
-          <button
-            onClick={() => setIsMobileSidebarOpen(true)}
-            className="p-2 bg-[#111827] text-white rounded-lg"
-          >
+          <button onClick={() => setIsMobileSidebarOpen(true)} className="p-2 bg-[#111827] text-white rounded-lg">
             <Menu size={24} />
           </button>
-          <button
-            onClick={refreshData}
-            className="p-2 bg-gray-200 dark:bg-gray-800 rounded-lg dark:text-white"
-          >
+          <button onClick={refreshData} className="p-2 bg-gray-200 dark:bg-gray-800 rounded-lg dark:text-white">
             <RefreshCw size={20} />
           </button>
         </div>
 
+        {/* ===== PROPIEDADES (intacto) ===== */}
         {activeTab === 'properties' && (
           <div>
             <div className="flex justify-between items-center mb-8">
               <div>
-                <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tight">
-                  Propiedades
-                </h2>
+                <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tight">Propiedades</h2>
                 <div className="text-xs text-gray-500 mt-1">{propertyCountLabel}</div>
               </div>
 
@@ -457,11 +476,7 @@ const AdminDashboard: React.FC = () => {
                   className="bg-white dark:bg-gray-800 p-4 rounded-2xl flex items-center justify-between border dark:border-gray-700 shadow-sm"
                 >
                   <div className="flex items-center gap-4 min-w-0">
-                    <img
-                      src={p.images?.[0] || ''}
-                      className="w-12 h-12 rounded-lg object-cover bg-gray-100"
-                      alt=""
-                    />
+                    <img src={p.images?.[0] || ''} className="w-12 h-12 rounded-lg object-cover bg-gray-100" alt="" />
                     <div className="min-w-0">
                       <div className="font-bold dark:text-white truncate">{p.title}</div>
                       <div className="text-xs text-gray-500 truncate">
@@ -498,16 +513,12 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
+        {/* ===== RESEÑAS (intacto) ===== */}
         {activeTab === 'reviews' && (
           <div>
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tighter">
-                Moderación de Reseñas (KV)
-              </h2>
-              <button
-                onClick={refreshData}
-                className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2"
-              >
+              <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tighter">Moderación de Reseñas (KV)</h2>
+              <button onClick={refreshData} className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2">
                 <RefreshCw size={16} /> Actualizar
               </button>
             </div>
@@ -537,17 +548,11 @@ const AdminDashboard: React.FC = () => {
                           <Star
                             key={i}
                             size={14}
-                            className={
-                              i < (t.rating || 0)
-                                ? 'text-yellow-400 fill-yellow-400'
-                                : 'text-gray-300'
-                            }
+                            className={i < (t.rating || 0) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}
                           />
                         ))}
                       </div>
-                      <div className="text-[10px] text-gray-400 font-mono">
-                        {t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}
-                      </div>
+                      <div className="text-[10px] text-gray-400 font-mono">{t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}</div>
                     </div>
 
                     {!t.approved && t.status !== 'deleted' && (
@@ -589,47 +594,160 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
+        {/* ===== LEADS (AHORA COMO DEMO: lista + detalle) ===== */}
         {activeTab === 'leads' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between mb-8">
+          <div className="space-y-6">
+            <div className="flex items-center justify-between gap-3">
               <h2 className="text-2xl font-bold dark:text-white">Interesados</h2>
-              <button
-                onClick={refreshData}
-                className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2"
-              >
+              <button onClick={refreshData} className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2">
                 <RefreshCw size={16} /> Actualizar
               </button>
             </div>
 
-            {leads.map(l => (
-              <div
-                key={l.id}
-                className="bg-white dark:bg-gray-800 p-5 rounded-2xl border dark:border-gray-700 flex justify-between items-center shadow-sm"
-              >
-                <div className="min-w-0">
-                  <div className="font-bold dark:text-white truncate">{l.name}</div>
-                  <div className="text-sm text-gray-500 truncate">
-                    {l.phone} {l.email ? `· ${l.email}` : ''}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Lista */}
+              <div className="lg:col-span-5">
+                <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-4 shadow-sm">
+                  <input
+                    value={leadSearch}
+                    onChange={e => setLeadSearch(e.target.value)}
+                    placeholder="Buscar lead (nombre, tel, correo, mensaje...)"
+                    className="w-full px-4 py-3 rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-900 dark:text-white outline-none"
+                  />
+
+                  <div className="mt-4 space-y-3 max-h-[70vh] overflow-auto pr-1">
+                    {filteredLeads.map((l: any) => {
+                      const active = l.id === selectedLeadId;
+                      return (
+                        <button
+                          key={l.id}
+                          onClick={() => setSelectedLeadId(l.id)}
+                          className={`w-full text-left p-4 rounded-2xl border transition-all ${active
+                              ? 'border-[#800020] bg-[#800020]/5 dark:bg-[#800020]/10'
+                              : 'border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/40'
+                            }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-bold dark:text-white truncate">{l.name || 'Sin nombre'}</div>
+                              <div className="text-sm text-gray-500 truncate">
+                                {l.phone || ''} {l.email ? `· ${l.email}` : ''}
+                              </div>
+
+                              <div className="text-[11px] text-gray-400 font-mono mt-1 truncate">
+                                {formatDate(l.createdAt)}
+                              </div>
+
+                              {l.message && (
+                                <div className="text-xs text-gray-500 mt-2 line-clamp-2">
+                                  {l.message}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {filteredLeads.length === 0 && (
+                      <div className="text-center text-gray-500 py-16 border-2 border-dashed rounded-3xl dark:border-gray-700">
+                        Aún no hay leads (o no coincide la búsqueda).
+                      </div>
+                    )}
                   </div>
                 </div>
-                <button
-                  onClick={() => setConfirmDelete({ type: 'lead', id: l.id })}
-                  className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                  title="Eliminar lead"
-                >
-                  <Trash2 size={18} />
-                </button>
               </div>
-            ))}
 
-            {leads.length === 0 && (
-              <div className="text-center text-gray-500 py-20 border-2 border-dashed rounded-3xl">
-                Aún no hay leads.
+              {/* Detalle */}
+              <div className="lg:col-span-7">
+                <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 shadow-sm min-h-[320px]">
+                  {!selectedLead ? (
+                    <div className="text-center text-gray-500 py-16">
+                      Selecciona un lead para ver el detalle.
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xl font-bold dark:text-white truncate">{(selectedLead as any).name || 'Sin nombre'}</div>
+                          <div className="text-sm text-gray-500 truncate">
+                            {(selectedLead as any).phone || ''} {(selectedLead as any).email ? `· ${(selectedLead as any).email}` : ''}
+                          </div>
+                          <div className="text-[11px] text-gray-400 font-mono mt-1">{formatDate((selectedLead as any).createdAt)}</div>
+                        </div>
+
+                        <button
+                          onClick={() => setConfirmDelete({ type: 'lead', id: (selectedLead as any).id })}
+                          className="p-2 rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                          title="Eliminar lead"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+
+                      {/* Acciones rápidas */}
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={waLink((selectedLead as any).phone)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-4 py-2 rounded-xl bg-green-50 text-green-700 font-bold text-sm hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300"
+                        >
+                          WhatsApp
+                        </a>
+                        <a
+                          href={(selectedLead as any).phone ? `tel:${(selectedLead as any).phone}` : '#'}
+                          className="px-4 py-2 rounded-xl bg-gray-100 font-bold text-sm hover:bg-gray-200 dark:bg-gray-700 dark:text-white"
+                        >
+                          Llamar
+                        </a>
+                        <a
+                          href={(selectedLead as any).email ? `mailto:${(selectedLead as any).email}` : '#'}
+                          className="px-4 py-2 rounded-xl bg-gray-100 font-bold text-sm hover:bg-gray-200 dark:bg-gray-700 dark:text-white"
+                        >
+                          Correo
+                        </a>
+                      </div>
+
+                      {/* Mensaje */}
+                      {(selectedLead as any).message && (
+                        <div className="bg-gray-50 dark:bg-gray-900/40 border dark:border-gray-700 rounded-2xl p-4">
+                          <div className="text-xs font-bold text-gray-500 mb-1">Mensaje</div>
+                          <div className="text-gray-700 dark:text-gray-200 whitespace-pre-wrap">
+                            {(selectedLead as any).message}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Campos extra si existen */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-xs font-bold text-gray-500">Fuente</div>
+                          <div className="mt-1 px-4 py-3 rounded-2xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 dark:text-white">
+                            {(selectedLead as any).source || '—'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-gray-500">Ciudad interés</div>
+                          <div className="mt-1 px-4 py-3 rounded-2xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 dark:text-white">
+                            {(selectedLead as any).cityInterest || '—'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-gray-400">
+                        Tip: este módulo es “como demo” sin requerir endpoints nuevos (solo lectura + eliminar).
+                        Si quieres **marcar atendido / notas / estatus**, lo agrego, pero requiere endpoint para actualizar lead.
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
+            </div>
           </div>
         )}
 
+        {/* ===== PERFIL (intacto) ===== */}
         {activeTab === 'profile' && profile && (
           <div className="max-w-3xl">
             <div className="flex items-center justify-between mb-6">
@@ -643,9 +761,7 @@ const AdminDashboard: React.FC = () => {
               </button>
             </div>
 
-            {profileMsg && (
-              <div className="mb-4 text-sm font-semibold text-[#800020]">{profileMsg}</div>
-            )}
+            {profileMsg && <div className="mb-4 text-sm font-semibold text-[#800020]">{profileMsg}</div>}
 
             <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 space-y-4 shadow-sm">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -746,7 +862,7 @@ const AdminDashboard: React.FC = () => {
         )}
       </main>
 
-      {/* MODAL: Crear / Editar Propiedad */}
+      {/* MODAL: Crear / Editar Propiedad (intacto) */}
       {isEditing && (
         <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-900 w-full max-w-4xl rounded-3xl shadow-2xl border dark:border-gray-800 overflow-hidden">
@@ -756,9 +872,7 @@ const AdminDashboard: React.FC = () => {
                 <h3 className="text-lg md:text-xl font-extrabold dark:text-white truncate">
                   {currentProp?.id ? 'Editar Propiedad' : 'Nueva Propiedad'}
                 </h3>
-                <p className="text-xs text-gray-500">
-                  Imágenes: {currentProp.images?.length || 0} · Se guardan en D1
-                </p>
+                <p className="text-xs text-gray-500">Imágenes: {currentProp.images?.length || 0} · Se guardan en D1</p>
               </div>
               <button
                 onClick={closePropertyModal}
@@ -829,9 +943,7 @@ const AdminDashboard: React.FC = () => {
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
                     value={currentProp.currency}
-                    onChange={e =>
-                      setCurrentProp(prev => ({ ...prev, currency: e.target.value as 'MXN' | 'USD' }))
-                    }
+                    onChange={e => setCurrentProp(prev => ({ ...prev, currency: e.target.value as 'MXN' | 'USD' }))}
                   >
                     <option value="MXN">MXN</option>
                     <option value="USD">USD</option>
@@ -874,9 +986,7 @@ const AdminDashboard: React.FC = () => {
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
                     value={currentProp.status}
-                    onChange={e =>
-                      setCurrentProp(prev => ({ ...prev, status: e.target.value as PropertyStatus }))
-                    }
+                    onChange={e => setCurrentProp(prev => ({ ...prev, status: e.target.value as PropertyStatus }))}
                   >
                     {STATUS.map(s => (
                       <option key={s} value={s}>
@@ -1058,16 +1168,10 @@ const AdminDashboard: React.FC = () => {
                 : 'Esta acción no se puede deshacer.'}
             </p>
             <div className="flex gap-4">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl font-bold"
-              >
+              <button onClick={() => setConfirmDelete(null)} className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl font-bold">
                 Cancelar
               </button>
-              <button
-                onClick={confirmDeleteNow}
-                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg"
-              >
+              <button onClick={confirmDeleteNow} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg">
                 Eliminar
               </button>
             </div>
