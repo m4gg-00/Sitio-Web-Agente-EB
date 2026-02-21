@@ -151,13 +151,31 @@ const Home: React.FC = () => {
 
       {/* Services */}
       <section className="py-16 max-w-7xl mx-auto px-4">
-        <div className="text-center mb-10">
-          <div className="text-[#800020] dark:text-[#ff3b5c] font-extrabold uppercase tracking-widest text-sm">
-            ¿CÓMO TE ACOMPAÑO?
+        {/* ✅ Ajuste para que “¿CÓMO TE ACOMPAÑO?” se vea grande y llamativo */}
+        <div className="text-center mb-12">
+          {/* Badge */}
+          <div className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-full bg-[#800020]/10 dark:bg-[#ff3b5c]/10 border border-[#800020]/20 dark:border-[#ff3b5c]/20">
+            <span className="h-2 w-2 rounded-full bg-[#800020] dark:bg-[#ff3b5c]" />
+            <span className="text-[#800020] dark:text-[#ff3b5c] font-extrabold uppercase tracking-[0.22em] text-xs md:text-sm">
+              ¿CÓMO TE ACOMPAÑO?
+            </span>
+            <span className="h-2 w-2 rounded-full bg-[#800020] dark:bg-[#ff3b5c]" />
           </div>
-          <p className="text-gray-600 dark:text-gray-300 mt-2 max-w-3xl mx-auto">
+
+          {/* Título grande */}
+          <h2 className="mt-4 text-3xl md:text-4xl font-extrabold text-gray-900 dark:text-white tracking-tight">
+            Mi metodología, paso a paso
+          </h2>
+
+          {/* Subtítulo más visible */}
+          <p className="text-gray-700 dark:text-gray-200 mt-3 max-w-3xl mx-auto text-base md:text-lg leading-relaxed">
             Mi metodología se basa en la confianza mutua para asegurar que cada paso sea sólido y sin sorpresas.
           </p>
+
+          {/* Línea decorativa */}
+          <div className="mt-6 flex justify-center">
+            <div className="h-1 w-24 rounded-full bg-[#800020] dark:bg-[#ff3b5c]" />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
@@ -212,10 +230,7 @@ const Home: React.FC = () => {
           </div>
         ) : (
           <>
-            <div
-              ref={carouselRef}
-              className="flex gap-6 overflow-x-auto pb-4 scroll-smooth snap-x snap-mandatory"
-            >
+            <div ref={carouselRef} className="flex gap-6 overflow-x-auto pb-4 scroll-smooth snap-x snap-mandatory">
               {latestProps.map((p: any) => (
                 <div key={p.id} className="min-w-[280px] sm:min-w-[340px] md:min-w-[380px] snap-start">
                   <PropertyCard property={p} />
@@ -224,10 +239,7 @@ const Home: React.FC = () => {
             </div>
 
             <div className="mt-6 flex justify-center">
-              <Link
-                to="/propiedades"
-                className="bg-[#800020] text-white px-8 py-3 rounded-xl font-bold hover:bg-[#600018]"
-              >
+              <Link to="/propiedades" className="bg-[#800020] text-white px-8 py-3 rounded-xl font-bold hover:bg-[#600018]">
                 Ver todas las propiedades
               </Link>
             </div>
@@ -299,10 +311,7 @@ const Home: React.FC = () => {
                   <Send size={18} /> {revStatus.type === 'loading' ? 'Enviando...' : 'Publicar Reseña'}
                 </button>
                 {revStatus.msg && (
-                  <p
-                    className={`text-center text-xs font-bold mt-2 ${revStatus.type === 'error' ? 'text-red-500' : 'text-green-500'
-                      }`}
-                  >
+                  <p className={`text-center text-xs font-bold mt-2 ${revStatus.type === 'error' ? 'text-red-500' : 'text-green-500'}`}>
                     {revStatus.msg}
                   </p>
                 )}
