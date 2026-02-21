@@ -13,7 +13,10 @@ import {
   Star,
   Trash2,
   User,
-  X
+  X,
+  Phone,
+  MessageCircle,
+  UploadCloud
 } from 'lucide-react';
 import { apiService } from '../../services/apiService';
 import { City, Lead, Property, PropertyStatus, PropertyType, SiteContent } from '../../types';
@@ -21,15 +24,27 @@ import { City, Lead, Property, PropertyStatus, PropertyType, SiteContent } from 
 type Tab = 'properties' | 'profile' | 'leads' | 'reviews';
 type ConfirmDelete = null | { type: 'property' | 'lead' | 'review'; id: string };
 
-// ==== Propiedades (NO se cambia tu lógica) ====
 const CITIES: City[] = ['Tijuana', 'Rosarito'];
 const TYPES: PropertyType[] = ['Casa', 'Departamento', 'Terreno', 'Local'];
 const STATUS: PropertyStatus[] = ['Disponible', 'Apartada', 'Vendida'];
 
-// ==== Leads (nuevo) ====
-type LeadStatusUI = 'nuevo' | 'contactado' | 'en seguimiento' | 'cerrado';
-const LEAD_STATUS: LeadStatusUI[] = ['nuevo', 'contactado', 'en seguimiento', 'cerrado'];
-const LS_KEY = 'lead_status_map_v1';
+// Leads
+type LeadStatus = 'nuevo' | 'contactado' | 'en seguimiento' | 'cerrado';
+const LEAD_STATUS: { value: LeadStatus; label: string }[] = [
+  { value: 'nuevo', label: 'Nuevo' },
+  { value: 'contactado', label: 'Contactado' },
+  { value: 'en seguimiento', label: 'En seguimiento' },
+  { value: 'cerrado', label: 'Cerrado' }
+];
+
+const leadStatusBadge = (s?: string) => {
+  const status = (s || 'nuevo') as LeadStatus;
+  const base = 'text-[10px] px-2 py-1 rounded-full font-extrabold uppercase tracking-wider';
+  if (status === 'cerrado') return `${base} bg-gray-200 text-gray-800`;
+  if (status === 'en seguimiento') return `${base} bg-amber-100 text-amber-800`;
+  if (status === 'contactado') return `${base} bg-blue-100 text-blue-800`;
+  return `${base} bg-[#800020]/10 text-[#800020]`;
+};
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 const toNum = (v: any) => {
@@ -63,39 +78,7 @@ const emptyPropertyDraft = (): Property => ({
   isPublished: true
 });
 
-const safeStr = (v: any) => (typeof v === 'string' ? v : v == null ? '' : String(v));
-const safeDateLabel = (iso: any) => {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleString();
-  } catch {
-    return '';
-  }
-};
-
-const getLeadStatusFromLead = (l: any): LeadStatusUI => {
-  const raw = safeStr(l?.status).toLowerCase();
-  if (raw === 'contactado') return 'contactado';
-  if (raw === 'en seguimiento' || raw === 'seguimiento') return 'en seguimiento';
-  if (raw === 'cerrado') return 'cerrado';
-  return 'nuevo';
-};
-
-const statusBadge = (s: LeadStatusUI) => {
-  switch (s) {
-    case 'nuevo':
-      return { label: 'NUEVO', cls: 'bg-[#800020]/10 text-[#800020] border-[#800020]/20' };
-    case 'contactado':
-      return { label: 'CONTACTADO', cls: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-200 dark:border-blue-900/40' };
-    case 'en seguimiento':
-      return { label: 'EN SEGUIMIENTO', cls: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-200 dark:border-amber-900/40' };
-    case 'cerrado':
-      return { label: 'CERRADO', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-200 dark:border-emerald-900/40' };
-    default:
-      return { label: 'NUEVO', cls: 'bg-[#800020]/10 text-[#800020] border-[#800020]/20' };
-  }
-};
+const LS_LEAD_STATUS_MAP = 'lead_status_map_v1';
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -115,42 +98,18 @@ const AdminDashboard: React.FC = () => {
   const [savingProp, setSavingProp] = useState(false);
   const [currentProp, setCurrentProp] = useState<Property>(emptyPropertyDraft());
   const [amenitiesText, setAmenitiesText] = useState('');
-  const [imagesText, setImagesText] = useState(''); // URLs opcionales pegadas
+  const [imagesText, setImagesText] = useState('');
   const [formError, setFormError] = useState<string>('');
 
   // Perfil
   const [profileMsg, setProfileMsg] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
+  const [savingProfilePic, setSavingProfilePic] = useState(false);
 
   // Leads UI
   const [leadQuery, setLeadQuery] = useState('');
-  const [leadStatusFilter, setLeadStatusFilter] = useState<'Todos' | LeadStatusUI>('Todos');
+  const [leadStatusFilter, setLeadStatusFilter] = useState<'todos' | LeadStatus>('todos');
   const [selectedLeadId, setSelectedLeadId] = useState<string>('');
-
-  // Lead status local persistence map
-  const [leadStatusMap, setLeadStatusMap] = useState<Record<string, LeadStatusUI>>({});
-
-  useEffect(() => {
-    // Cargar statuses guardados
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const obj = JSON.parse(raw);
-        if (obj && typeof obj === 'object') setLeadStatusMap(obj);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    // Guardar statuses
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(leadStatusMap));
-    } catch {
-      // ignore
-    }
-  }, [leadStatusMap]);
 
   useEffect(() => {
     const init = async () => {
@@ -165,6 +124,26 @@ const AdminDashboard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const readLeadStatusMap = (): Record<string, LeadStatus> => {
+    try {
+      const raw = localStorage.getItem(LS_LEAD_STATUS_MAP);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return {};
+      return parsed;
+    } catch {
+      return {};
+    }
+  };
+
+  const writeLeadStatusMap = (map: Record<string, LeadStatus>) => {
+    try {
+      localStorage.setItem(LS_LEAD_STATUS_MAP, JSON.stringify(map));
+    } catch {
+      // ignore
+    }
+  };
+
   const refreshData = async () => {
     setIsLoading(true);
     try {
@@ -176,7 +155,21 @@ const AdminDashboard: React.FC = () => {
       ]);
 
       if (p.status === 'fulfilled') setProperties(p.value);
-      if (l.status === 'fulfilled') setLeads(l.value);
+
+      if (l.status === 'fulfilled') {
+        const map = readLeadStatusMap();
+        const merged = (l.value || []).map((lead: any) => {
+          const localStatus = map[lead.id];
+          return localStatus ? { ...lead, status: localStatus } : lead;
+        });
+
+        setLeads(merged);
+
+        // autoselección
+        const first = merged?.[0]?.id;
+        setSelectedLeadId(prev => prev || first || '');
+      }
+
       if (prof.status === 'fulfilled') setProfile(prof.value);
       if (tests.status === 'fulfilled') setTestimonials(tests.value);
     } catch (err) {
@@ -208,13 +201,10 @@ const AdminDashboard: React.FC = () => {
         setProperties(prev => prev.filter(p => p.id !== confirmDelete.id));
       } else if (confirmDelete.type === 'lead') {
         await apiService.deleteLead(confirmDelete.id);
-        setLeads(prev => prev.filter(l => (l as any).id !== confirmDelete.id));
+        setLeads(prev => prev.filter(l => l.id !== confirmDelete.id));
+
+        // limpia selección si borraste el seleccionado
         setSelectedLeadId(prev => (prev === confirmDelete.id ? '' : prev));
-        setLeadStatusMap(prev => {
-          const copy = { ...prev };
-          delete copy[confirmDelete.id];
-          return copy;
-        });
       } else if (confirmDelete.type === 'review') {
         await apiService.deleteTestimonial(confirmDelete.id);
         setTestimonials(prev =>
@@ -227,7 +217,7 @@ const AdminDashboard: React.FC = () => {
     setConfirmDelete(null);
   };
 
-  // ===== PROPIEDADES (SIN CAMBIOS DE FONDO) =====
+  // ====== PROPIEDADES (NO TOCAR) ======
   const openNewProperty = () => {
     const draft = emptyPropertyDraft();
     setCurrentProp(draft);
@@ -288,7 +278,7 @@ const AdminDashboard: React.FC = () => {
     setFormError('');
 
     try {
-      const uploads = await Promise.all(Array.from(files).map(f => (apiService as any).uploadImage(f)));
+      const uploads = await Promise.all(Array.from(files).map(f => apiService.uploadImage(f)));
       setCurrentProp(prev => ({
         ...prev,
         images: [...(prev.images || []), ...uploads]
@@ -307,20 +297,19 @@ const AdminDashboard: React.FC = () => {
 
     const images = Array.isArray((draft as any).images) ? (draft as any).images.filter(Boolean) : [];
 
-    const valuationRaw = (draft as any).valuation;
-    const valuationNormalized =
-      valuationRaw === undefined || valuationRaw === null || String(valuationRaw).trim() === ''
-        ? undefined
-        : toNum(valuationRaw);
-
     const normalized: Property = {
-      ...(draft as any),
-      title: safeStr((draft as any).title).trim(),
-      zone: safeStr((draft as any).zone).trim(),
-      description: safeStr((draft as any).description).trim(),
+      ...draft,
+      title: ((draft as any).title || '').trim(),
+      zone: ((draft as any).zone || '').trim(),
+      description: ((draft as any).description || '').trim(),
       price: toNum((draft as any).price),
-      currency: (draft as any).currency === 'USD' ? 'USD' : 'MXN',
-      valuation: valuationNormalized,
+      currency: ((draft as any).currency as any) === 'USD' ? 'USD' : 'MXN',
+      valuation:
+        (draft as any).valuation === undefined ||
+          (draft as any).valuation === null ||
+          String((draft as any).valuation).trim() === ''
+          ? undefined
+          : toNum((draft as any).valuation),
       type: (TYPES.includes((draft as any).type) ? (draft as any).type : 'Casa') as PropertyType,
       status: (STATUS.includes((draft as any).status) ? (draft as any).status : 'Disponible') as PropertyStatus,
       bedrooms: clamp(toInt((draft as any).bedrooms), 0, 99),
@@ -328,8 +317,8 @@ const AdminDashboard: React.FC = () => {
       parking: clamp(toInt((draft as any).parking), 0, 99),
       amenities,
       images,
-      videoUrl: safeStr((draft as any).videoUrl).trim(),
-      mapsLink: safeStr((draft as any).mapsLink).trim(),
+      videoUrl: ((draft as any).videoUrl || '').trim(),
+      mapsLink: ((draft as any).mapsLink || '').trim(),
       isPublished: (draft as any).isPublished ?? true,
       createdAt: (draft as any).createdAt || new Date().toISOString()
     };
@@ -344,23 +333,41 @@ const AdminDashboard: React.FC = () => {
     try {
       const normalized = normalizePropertyForSave(currentProp);
 
-      if (!normalized.title) return void setFormError('El título es obligatorio.'), setSavingProp(false);
-      if (!normalized.zone) return void setFormError('La zona es obligatoria.'), setSavingProp(false);
-      if (!normalized.description) return void setFormError('La descripción es obligatoria.'), setSavingProp(false);
-      if (!normalized.images || normalized.images.length === 0)
-        return void setFormError('Agrega al menos 1 imagen (archivo o URL).'), setSavingProp(false);
+      if (!normalized.title) {
+        setFormError('El título es obligatorio.');
+        setSavingProp(false);
+        return;
+      }
+      if (!normalized.zone) {
+        setFormError('La zona es obligatoria.');
+        setSavingProp(false);
+        return;
+      }
+      if (!normalized.description) {
+        setFormError('La descripción es obligatoria.');
+        setSavingProp(false);
+        return;
+      }
+      if (!normalized.images || normalized.images.length === 0) {
+        setFormError('Agrega al menos 1 imagen (archivo o URL).');
+        setSavingProp(false);
+        return;
+      }
 
-      await apiService.saveProperty(normalized as any);
+      await apiService.saveProperty(normalized);
       await refreshData();
       setIsEditing(false);
     } catch (e: any) {
       console.error(e);
-      setFormError(e?.message ? `Error al guardar: ${e.message}` : 'Error al guardar. Revisa la consola y vuelve a intentar.');
+      setFormError(
+        e?.message ? `Error al guardar: ${e.message}` : 'Error al guardar. Revisa la consola y vuelve a intentar.'
+      );
     } finally {
       setSavingProp(false);
     }
   };
 
+  // ====== PERFIL ======
   const saveProfile = async () => {
     if (!profile) return;
     setSavingProfile(true);
@@ -377,98 +384,98 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleProfilePicUpload = async (file: File | null) => {
+    if (!file || !profile) return;
+    setSavingProfilePic(true);
+    setProfileMsg('');
+    try {
+      const dataUrl = await apiService.uploadImage(file);
+      setProfile(prev => (prev ? { ...prev, profilePic: dataUrl } : prev));
+      setProfileMsg('Foto cargada ✅ (no olvides Guardar)');
+    } catch (e) {
+      console.error(e);
+      setProfileMsg('No se pudo cargar la foto.');
+    } finally {
+      setSavingProfilePic(false);
+      setTimeout(() => setProfileMsg(''), 3500);
+    }
+  };
+
+  // ====== LEADS ======
+  const selectedLead = useMemo(() => leads.find(l => l.id === selectedLeadId) || leads[0], [leads, selectedLeadId]);
+
+  const filteredLeads = useMemo(() => {
+    const q = leadQuery.trim().toLowerCase();
+    return (leads || [])
+      .filter(l => {
+        if (leadStatusFilter === 'todos') return true;
+        return ((l as any).status || 'nuevo') === leadStatusFilter;
+      })
+      .filter(l => {
+        if (!q) return true;
+        const hay = [
+          (l as any).name,
+          (l as any).phone,
+          (l as any).message,
+          (l as any).cityInterest,
+          (l as any).operationType
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(q);
+      })
+      .sort((a: any, b: any) => {
+        const da = new Date((a as any).createdAt || 0).getTime();
+        const db = new Date((b as any).createdAt || 0).getTime();
+        return db - da;
+      });
+  }, [leads, leadQuery, leadStatusFilter]);
+
+  const updateLeadStatus = async (leadId: string, status: LeadStatus) => {
+    // 1) UI inmediata
+    setLeads(prev => prev.map(l => (l.id === leadId ? ({ ...l, status } as any) : l)));
+
+    // 2) Persistencia local
+    const map = readLeadStatusMap();
+    map[leadId] = status;
+    writeLeadStatusMap(map);
+
+    // 3) Si existe endpoint en apiService, intenta persistir
+    try {
+      const anyApi: any = apiService as any;
+      if (typeof anyApi.updateLeadStatus === 'function') {
+        await anyApi.updateLeadStatus(leadId, status);
+      } else if (typeof anyApi.saveLead === 'function') {
+        // fallback si tu API usa saveLead
+        await anyApi.saveLead({ id: leadId, status });
+      }
+    } catch (e) {
+      console.warn('No se pudo persistir estatus en backend; quedó guardado localmente.', e);
+    }
+  };
+
+  const formatBudget = (l?: any) => {
+    if (!l) return '—';
+    const amount = l.budgetAmount;
+    const cur = l.budgetCurrency || 'MXN';
+    if (typeof amount === 'number' && Number.isFinite(amount) && amount > 0) {
+      try {
+        return new Intl.NumberFormat('es-MX', { style: 'currency', currency: cur }).format(amount);
+      } catch {
+        return `${amount} ${cur}`;
+      }
+    }
+    if (l.budget && String(l.budget).trim()) return String(l.budget);
+    return '—';
+  };
+
   const propertyCountLabel = useMemo(() => {
     const total = properties.length;
     const published = properties.filter(p => (p as any).isPublished).length;
     return `${published}/${total} publicadas`;
   }, [properties]);
 
-  // ===== LEADS: status + filtro + layout demo =====
-  const leadsEnriched = useMemo(() => {
-    return (leads || []).map((l: any) => {
-      const id = safeStr(l?.id);
-      const statusFromLead = getLeadStatusFromLead(l);
-      const status = leadStatusMap[id] ?? statusFromLead;
-      return { ...l, id, __statusUI: status as LeadStatusUI };
-    });
-  }, [leads, leadStatusMap]);
-
-  const leadsFiltered = useMemo(() => {
-    const q = leadQuery.trim().toLowerCase();
-    const statusFilter = leadStatusFilter;
-
-    return leadsEnriched.filter((l: any) => {
-      const statusOk = statusFilter === 'Todos' ? true : l.__statusUI === statusFilter;
-      if (!statusOk) return false;
-
-      if (!q) return true;
-
-      const hay =
-        [
-          l?.name,
-          l?.phone,
-          l?.message,
-          l?.propertyTitle,
-          l?.propertyId,
-          l?.operationType,
-          l?.cityInterest,
-          l?.city
-        ]
-          .map(safeStr)
-          .join(' ')
-          .toLowerCase();
-
-      return hay.includes(q);
-    });
-  }, [leadsEnriched, leadQuery, leadStatusFilter]);
-
-  useEffect(() => {
-    // Selección default: primer lead filtrado
-    if (activeTab !== 'leads') return;
-
-    const exists = leadsFiltered.some((l: any) => l.id === selectedLeadId);
-    if (!selectedLeadId || !exists) {
-      setSelectedLeadId(leadsFiltered[0]?.id || '');
-    }
-  }, [activeTab, leadsFiltered, selectedLeadId]);
-
-  const selectedLead = useMemo(() => {
-    return leadsFiltered.find((l: any) => l.id === selectedLeadId) || null;
-  }, [leadsFiltered, selectedLeadId]);
-
-  const setLeadStatus = async (leadId: string, status: LeadStatusUI) => {
-    // UI optimistic
-    setLeadStatusMap(prev => ({ ...prev, [leadId]: status }));
-
-    // Si tu apiService algún día tiene endpoint, aquí lo intentamos sin romper nada:
-    try {
-      const anyApi = apiService as any;
-      if (typeof anyApi.updateLeadStatus === 'function') {
-        await anyApi.updateLeadStatus(leadId, status);
-      } else if (typeof anyApi.saveLead === 'function') {
-        await anyApi.saveLead({ id: leadId, status });
-      } else if (typeof anyApi.updateLead === 'function') {
-        await anyApi.updateLead(leadId, { status });
-      }
-    } catch (e) {
-      // No rompemos UI: mantenemos local, pero dejamos rastro en consola
-      console.warn('No se pudo persistir status en backend. Se mantiene localStorage.', e);
-    }
-  };
-
-  const openWhatsApp = (phoneRaw: any) => {
-    const phone = safeStr(phoneRaw).replace(/[^\d]/g, '');
-    if (!phone) return;
-    window.open(`https://wa.me/${phone}`, '_blank', 'noopener,noreferrer');
-  };
-
-  const callPhone = (phoneRaw: any) => {
-    const phone = safeStr(phoneRaw).replace(/[^\d+]/g, '');
-    if (!phone) return;
-    window.location.href = `tel:${phone}`;
-  };
-
-  // ===== RENDER =====
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center dark:bg-gray-900 dark:text-white">
@@ -480,10 +487,7 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col lg:flex-row transition-colors overflow-hidden">
       {isMobileSidebarOpen && (
-        <div
-          onClick={() => setIsMobileSidebarOpen(false)}
-          className="fixed inset-0 bg-black/50 z-[45] lg:hidden"
-        />
+        <div onClick={() => setIsMobileSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[45] lg:hidden" />
       )}
 
       <aside
@@ -547,10 +551,7 @@ const AdminDashboard: React.FC = () => {
           </nav>
 
           <div className="p-4 border-t border-white/10">
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-3 p-3 rounded-lg text-red-400 hover:bg-red-500/10"
-            >
+            <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-lg text-red-400 hover:bg-red-500/10">
               <LogOut size={20} /> <span>Cerrar Sesión</span>
             </button>
           </div>
@@ -559,28 +560,20 @@ const AdminDashboard: React.FC = () => {
 
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
         <div className="lg:hidden mb-4 flex justify-between items-center">
-          <button
-            onClick={() => setIsMobileSidebarOpen(true)}
-            className="p-2 bg-[#111827] text-white rounded-lg"
-          >
+          <button onClick={() => setIsMobileSidebarOpen(true)} className="p-2 bg-[#111827] text-white rounded-lg">
             <Menu size={24} />
           </button>
-          <button
-            onClick={refreshData}
-            className="p-2 bg-gray-200 dark:bg-gray-800 rounded-lg dark:text-white"
-          >
+          <button onClick={refreshData} className="p-2 bg-gray-200 dark:bg-gray-800 rounded-lg dark:text-white">
             <RefreshCw size={20} />
           </button>
         </div>
 
-        {/* ===================== PROPIEDADES ===================== */}
+        {/* =================== PROPIEDADES (NO SE MODIFICA EL AVANCE) =================== */}
         {activeTab === 'properties' && (
           <div>
             <div className="flex justify-between items-center mb-8">
               <div>
-                <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tight">
-                  Propiedades
-                </h2>
+                <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tight">Propiedades</h2>
                 <div className="text-xs text-gray-500 mt-1">{propertyCountLabel}</div>
               </div>
 
@@ -593,21 +586,18 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 gap-4">
-              {properties.map((p: any) => (
-                <div
-                  key={p.id}
-                  className="bg-white dark:bg-gray-800 p-4 rounded-2xl flex items-center justify-between border dark:border-gray-700 shadow-sm"
-                >
+              {properties.map(p => (
+                <div key={p.id} className="bg-white dark:bg-gray-800 p-4 rounded-2xl flex items-center justify-between border dark:border-gray-700 shadow-sm">
                   <div className="flex items-center gap-4 min-w-0">
                     <img
-                      src={p.images?.[0] || ''}
+                      src={(p as any).images?.[0] || ''}
                       className="w-12 h-12 rounded-lg object-cover bg-gray-100"
                       alt=""
                     />
                     <div className="min-w-0">
-                      <div className="font-bold dark:text-white truncate">{p.title}</div>
+                      <div className="font-bold dark:text-white truncate">{(p as any).title}</div>
                       <div className="text-xs text-gray-500 truncate">
-                        {p.city} · {p.zone} · {p.isPublished ? 'Publicada' : 'Oculta'}
+                        {(p as any).city} · {(p as any).zone} · {(p as any).isPublished ? 'Publicada' : 'Oculta'}
                       </div>
                     </div>
                   </div>
@@ -640,17 +630,12 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* ===================== RESEÑAS ===================== */}
+        {/* =================== RESEÑAS =================== */}
         {activeTab === 'reviews' && (
           <div>
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tighter">
-                Moderación de Reseñas (KV)
-              </h2>
-              <button
-                onClick={refreshData}
-                className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2"
-              >
+              <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tighter">Moderación de Reseñas (KV)</h2>
+              <button onClick={refreshData} className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2">
                 <RefreshCw size={16} /> Actualizar
               </button>
             </div>
@@ -680,17 +665,11 @@ const AdminDashboard: React.FC = () => {
                           <Star
                             key={i}
                             size={14}
-                            className={
-                              i < (t.rating || 0)
-                                ? 'text-yellow-400 fill-yellow-400'
-                                : 'text-gray-300'
-                            }
+                            className={i < (t.rating || 0) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}
                           />
                         ))}
                       </div>
-                      <div className="text-[10px] text-gray-400 font-mono">
-                        {t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}
-                      </div>
+                      <div className="text-[10px] text-gray-400 font-mono">{t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}</div>
                     </div>
 
                     {!t.approved && t.status !== 'deleted' && (
@@ -724,93 +703,81 @@ const AdminDashboard: React.FC = () => {
               ))}
 
               {testimonials.length === 0 && (
-                <p className="text-center text-gray-500 py-20 border-2 border-dashed rounded-3xl">
-                  No hay reseñas registradas en KV.
-                </p>
+                <p className="text-center text-gray-500 py-20 border-2 border-dashed rounded-3xl">No hay reseñas registradas en KV.</p>
               )}
             </div>
           </div>
         )}
 
-        {/* ===================== LEADS (ACTUALIZADO) ===================== */}
+        {/* =================== LEADS (DISEÑO DEMO + ESTATUS + FILTRO + PRESUPUESTO) =================== */}
         {activeTab === 'leads' && (
           <div>
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold dark:text-white">Interesados</h2>
-              <button
-                onClick={refreshData}
-                className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2"
-              >
+              <button onClick={refreshData} className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2">
                 <RefreshCw size={16} /> Actualizar
               </button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Left: list */}
-              <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-5 shadow-sm">
+              {/* Lista */}
+              <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-4 shadow-sm">
                 <div className="flex flex-col md:flex-row gap-3 mb-4">
                   <input
-                    className="flex-1 p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
-                    placeholder="Buscar lead (nombre, tel, mensaje...)"
                     value={leadQuery}
                     onChange={e => setLeadQuery(e.target.value)}
+                    placeholder="Buscar lead (nombre, tel, mensaje...)"
+                    className="flex-1 px-4 py-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                   />
+
                   <select
-                    className="md:w-56 p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
                     value={leadStatusFilter}
                     onChange={e => setLeadStatusFilter(e.target.value as any)}
+                    className="md:w-56 px-4 py-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white font-semibold"
                   >
-                    <option value="Todos">Estatus: Todos</option>
+                    <option value="todos">Estatus: Todos</option>
                     {LEAD_STATUS.map(s => (
-                      <option key={s} value={s}>
-                        Estatus: {s}
+                      <option key={s.value} value={s.value}>
+                        Estatus: {s.label}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div className="space-y-3">
-                  {leadsFiltered.map((l: any) => {
-                    const isSel = l.id === selectedLeadId;
-                    const badge = statusBadge(l.__statusUI);
-
+                  {filteredLeads.map((l: any) => {
+                    const isActive = l.id === (selectedLead?.id || '');
                     return (
                       <button
                         key={l.id}
                         onClick={() => setSelectedLeadId(l.id)}
-                        className={`w-full text-left p-4 rounded-2xl border transition-all ${isSel
+                        className={`w-full text-left p-4 rounded-2xl border transition-all ${isActive
                             ? 'border-[#800020] bg-[#800020]/5'
-                            : 'border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5'
+                            : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5'
                           }`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="font-extrabold dark:text-white truncate">{safeStr(l.name) || 'Sin nombre'}</div>
-                            <div className="text-sm text-gray-500 truncate">{safeStr(l.phone)}</div>
-                            <div className="text-[11px] text-gray-400 mt-1">{safeDateLabel(l.createdAt)}</div>
-                            {safeStr(l.message) && (
-                              <div className="text-xs text-gray-500 mt-2 line-clamp-2">
-                                {safeStr(l.message)}
-                              </div>
-                            )}
+                            <div className="font-extrabold dark:text-white truncate">{l.name || 'Sin nombre'}</div>
+                            <div className="text-sm text-gray-500 truncate">{l.phone || '—'}</div>
+                            <div className="text-xs text-gray-400 mt-1">{l.createdAt ? new Date(l.createdAt).toLocaleString() : ''}</div>
                           </div>
-                          <span className={`shrink-0 text-[10px] font-extrabold uppercase px-2 py-1 rounded-full border ${badge.cls}`}>
-                            {badge.label}
-                          </span>
+                          <span className={leadStatusBadge(l.status)}>{(l.status || 'nuevo').toString()}</span>
                         </div>
+                        <div className="text-sm text-gray-600 dark:text-gray-300 mt-3 line-clamp-2">{l.message || '—'}</div>
                       </button>
                     );
                   })}
 
-                  {leadsFiltered.length === 0 && (
-                    <div className="text-center text-gray-500 py-16 border-2 border-dashed rounded-3xl">
-                      No hay leads con ese filtro.
+                  {filteredLeads.length === 0 && (
+                    <div className="text-center text-gray-500 py-14 border-2 border-dashed rounded-3xl">
+                      No hay leads con ese filtro/búsqueda.
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Right: detail */}
+              {/* Detalle */}
               <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 shadow-sm">
                 {!selectedLead ? (
                   <div className="text-center text-gray-500 py-20 border-2 border-dashed rounded-3xl">
@@ -818,17 +785,15 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 ) : (
                   <div>
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start justify-between gap-4 mb-4">
                       <div className="min-w-0">
-                        <div className="text-2xl font-extrabold dark:text-white truncate">
-                          {safeStr((selectedLead as any).name) || 'Sin nombre'}
-                        </div>
-                        <div className="text-gray-500">{safeStr((selectedLead as any).phone)}</div>
-                        <div className="text-xs text-gray-400 mt-1">{safeDateLabel((selectedLead as any).createdAt)}</div>
+                        <div className="text-2xl font-extrabold dark:text-white truncate">{(selectedLead as any).name || 'Sin nombre'}</div>
+                        <div className="text-sm text-gray-500">{(selectedLead as any).phone || '—'}</div>
+                        <div className="text-xs text-gray-400 mt-1">{(selectedLead as any).createdAt ? new Date((selectedLead as any).createdAt).toLocaleString() : ''}</div>
                       </div>
 
                       <button
-                        onClick={() => setConfirmDelete({ type: 'lead', id: safeStr((selectedLead as any).id) })}
+                        onClick={() => setConfirmDelete({ type: 'lead', id: (selectedLead as any).id })}
                         className="p-2 rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                         title="Eliminar lead"
                       >
@@ -836,62 +801,61 @@ const AdminDashboard: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* actions */}
-                    <div className="flex flex-wrap gap-3 mt-5">
-                      <button
-                        onClick={() => openWhatsApp((selectedLead as any).phone)}
-                        className="px-5 py-2.5 rounded-2xl font-extrabold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200"
+                    <div className="flex flex-wrap gap-3 mb-6">
+                      <a
+                        href={`https://wa.me/52${String((selectedLead as any).phone || '').replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-green-100 text-green-800 font-bold hover:bg-green-200"
                       >
-                        WhatsApp
-                      </button>
-                      <button
-                        onClick={() => callPhone((selectedLead as any).phone)}
-                        className="px-5 py-2.5 rounded-2xl font-extrabold bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-950"
+                        <MessageCircle size={18} /> WhatsApp
+                      </a>
+
+                      <a
+                        href={`tel:${(selectedLead as any).phone || ''}`}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 text-gray-800 font-bold hover:bg-gray-200 dark:bg-white/10 dark:text-white"
                       >
-                        Llamar
-                      </button>
+                        <Phone size={18} /> Llamar
+                      </a>
                     </div>
 
-                    {/* status selector */}
-                    <div className="mt-5">
-                      <label className="text-sm font-extrabold dark:text-white">
-                        Estatus de seguimiento
-                        <select
-                          className="mt-2 w-full p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
-                          value={(selectedLead as any).__statusUI}
-                          onChange={e => setLeadStatus(safeStr((selectedLead as any).id), e.target.value as LeadStatusUI)}
-                        >
-                          {LEAD_STATUS.map(s => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-
-                    {/* message */}
-                    <div className="mt-6 border dark:border-gray-700 rounded-2xl p-4">
-                      <div className="text-xs font-extrabold text-gray-500 uppercase tracking-wider">Mensaje</div>
-                      <div className="mt-2 text-gray-800 dark:text-gray-200">
-                        {safeStr((selectedLead as any).message) || '—'}
+                    <div className="mb-5">
+                      <div className="text-sm font-extrabold dark:text-white mb-2">Estatus de seguimiento</div>
+                      <select
+                        value={(((selectedLead as any).status || 'nuevo') as LeadStatus)}
+                        onChange={e => updateLeadStatus((selectedLead as any).id, e.target.value as LeadStatus)}
+                        className="w-full px-4 py-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900 dark:text-white font-semibold"
+                      >
+                        {LEAD_STATUS.map(s => (
+                          <option key={s.value} value={s.value}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="text-[11px] text-gray-400 mt-2">
+                        * El estatus se guarda en este navegador. Si tu backend tiene endpoint, también se intentará guardar.
                       </div>
                     </div>
 
-                    {/* extra info (SIN Fuente / SIN Correo) */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
-                      <div className="border dark:border-gray-700 rounded-2xl p-4">
-                        <div className="text-xs font-extrabold text-gray-500 uppercase tracking-wider">Ciudad interés</div>
-                        <div className="mt-2 font-bold dark:text-white">
-                          {safeStr((selectedLead as any).cityInterest || (selectedLead as any).city) || '—'}
-                        </div>
+                    <div className="bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-gray-700 rounded-3xl p-5 mb-5">
+                      <div className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Mensaje</div>
+                      <div className="text-gray-800 dark:text-white">{(selectedLead as any).message || '—'}</div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="border rounded-3xl p-5 dark:border-gray-700">
+                        <div className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Ciudad interés</div>
+                        <div className="font-extrabold dark:text-white">{(selectedLead as any).cityInterest || '—'}</div>
                       </div>
 
-                      <div className="border dark:border-gray-700 rounded-2xl p-4">
-                        <div className="text-xs font-extrabold text-gray-500 uppercase tracking-wider">Tipo de operación</div>
-                        <div className="mt-2 font-bold dark:text-white">
-                          {safeStr((selectedLead as any).operationType) || '—'}
-                        </div>
+                      <div className="border rounded-3xl p-5 dark:border-gray-700">
+                        <div className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Tipo de operación</div>
+                        <div className="font-extrabold dark:text-white">{(selectedLead as any).operationType || '—'}</div>
+                      </div>
+
+                      <div className="border rounded-3xl p-5 dark:border-gray-700 md:col-span-2">
+                        <div className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-2">Presupuesto</div>
+                        <div className="font-extrabold dark:text-white">{formatBudget(selectedLead as any)}</div>
                       </div>
                     </div>
                   </div>
@@ -901,7 +865,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* ===================== PERFIL ===================== */}
+        {/* =================== PERFIL (SUBIR FOTO, SIN URL) =================== */}
         {activeTab === 'profile' && profile && (
           <div className="max-w-3xl">
             <div className="flex items-center justify-between mb-6">
@@ -917,33 +881,66 @@ const AdminDashboard: React.FC = () => {
 
             {profileMsg && <div className="mb-4 text-sm font-semibold text-[#800020]">{profileMsg}</div>}
 
-            <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 space-y-4 shadow-sm">
+            <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 space-y-5 shadow-sm">
+              {/* Foto */}
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-900 border dark:border-gray-700 flex items-center justify-center">
+                  {profile.profilePic ? (
+                    <img src={profile.profilePic} alt="Foto" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="text-gray-400" />
+                  )}
+                </div>
+
+                <div className="flex-1">
+                  <div className="text-sm font-extrabold dark:text-white">Foto de perfil</div>
+                  <div className="text-xs text-gray-500">Sube una imagen (JPG/PNG). Se guarda igual que las imágenes en D1.</div>
+
+                  <div className="flex flex-wrap gap-3 mt-3">
+                    <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-900 text-white font-bold cursor-pointer hover:bg-black dark:bg-white dark:text-black">
+                      <UploadCloud size={18} />
+                      {savingProfilePic ? 'Cargando...' : 'Subir foto'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => handleProfilePicUpload(e.target.files?.[0] || null)}
+                      />
+                    </label>
+
+                    {profile.profilePic && (
+                      <button
+                        type="button"
+                        onClick={() => setProfile(prev => (prev ? { ...prev, profilePic: '' } : prev))}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-50 text-red-700 font-bold hover:bg-red-100"
+                      >
+                        <X size={18} /> Quitar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <label className="text-sm font-semibold dark:text-white">
                   Nombre a mostrar
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={(profile as any).displayName}
-                    onChange={e => setProfile({ ...(profile as any), displayName: e.target.value })}
+                    value={profile.displayName}
+                    onChange={e => setProfile({ ...profile, displayName: e.target.value })}
                   />
                 </label>
 
-                <label className="text-sm font-semibold dark:text-white">
-                  Foto (URL)
-                  <input
-                    className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={(profile as any).profilePic}
-                    onChange={e => setProfile({ ...(profile as any), profilePic: e.target.value })}
-                  />
-                </label>
+                {/* Se quitó Foto URL */}
+                <div className="hidden md:block" />
               </div>
 
               <label className="text-sm font-semibold dark:text-white">
                 Título hero
                 <input
                   className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                  value={(profile as any).heroTitle}
-                  onChange={e => setProfile({ ...(profile as any), heroTitle: e.target.value })}
+                  value={profile.heroTitle}
+                  onChange={e => setProfile({ ...profile, heroTitle: e.target.value })}
                 />
               </label>
 
@@ -951,8 +948,8 @@ const AdminDashboard: React.FC = () => {
                 Subtítulo hero
                 <input
                   className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                  value={(profile as any).heroSub}
-                  onChange={e => setProfile({ ...(profile as any), heroSub: e.target.value })}
+                  value={profile.heroSub}
+                  onChange={e => setProfile({ ...profile, heroSub: e.target.value })}
                 />
               </label>
 
@@ -960,8 +957,8 @@ const AdminDashboard: React.FC = () => {
                 Bio corta
                 <input
                   className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                  value={(profile as any).bioShort}
-                  onChange={e => setProfile({ ...(profile as any), bioShort: e.target.value })}
+                  value={profile.bioShort}
+                  onChange={e => setProfile({ ...profile, bioShort: e.target.value })}
                 />
               </label>
 
@@ -969,8 +966,8 @@ const AdminDashboard: React.FC = () => {
                 Bio larga
                 <textarea
                   className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 min-h-[140px]"
-                  value={(profile as any).bioLong}
-                  onChange={e => setProfile({ ...(profile as any), bioLong: e.target.value })}
+                  value={profile.bioLong}
+                  onChange={e => setProfile({ ...profile, bioLong: e.target.value })}
                 />
               </label>
 
@@ -979,8 +976,8 @@ const AdminDashboard: React.FC = () => {
                   WhatsApp
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={(profile as any).whatsapp}
-                    onChange={e => setProfile({ ...(profile as any), whatsapp: e.target.value })}
+                    value={profile.whatsapp}
+                    onChange={e => setProfile({ ...profile, whatsapp: e.target.value })}
                   />
                 </label>
 
@@ -988,8 +985,8 @@ const AdminDashboard: React.FC = () => {
                   Email
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={(profile as any).email}
-                    onChange={e => setProfile({ ...(profile as any), email: e.target.value })}
+                    value={profile.email}
+                    onChange={e => setProfile({ ...profile, email: e.target.value })}
                   />
                 </label>
 
@@ -997,8 +994,8 @@ const AdminDashboard: React.FC = () => {
                   Instagram
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={(profile as any).instagram}
-                    onChange={e => setProfile({ ...(profile as any), instagram: e.target.value })}
+                    value={profile.instagram}
+                    onChange={e => setProfile({ ...profile, instagram: e.target.value })}
                   />
                 </label>
 
@@ -1006,8 +1003,8 @@ const AdminDashboard: React.FC = () => {
                   Facebook
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={(profile as any).facebook}
-                    onChange={e => setProfile({ ...(profile as any), facebook: e.target.value })}
+                    value={profile.facebook}
+                    onChange={e => setProfile({ ...profile, facebook: e.target.value })}
                   />
                 </label>
               </div>
@@ -1016,7 +1013,7 @@ const AdminDashboard: React.FC = () => {
         )}
       </main>
 
-      {/* ===================== MODAL: Crear / Editar Propiedad ===================== */}
+      {/* =================== MODAL: Crear / Editar Propiedad (NO MODIFICAR) =================== */}
       {isEditing && (
         <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-900 w-full max-w-4xl rounded-3xl shadow-2xl border dark:border-gray-800 overflow-hidden">
@@ -1025,15 +1022,9 @@ const AdminDashboard: React.FC = () => {
                 <h3 className="text-lg md:text-xl font-extrabold dark:text-white truncate">
                   {currentProp?.id ? 'Editar Propiedad' : 'Nueva Propiedad'}
                 </h3>
-                <p className="text-xs text-gray-500">
-                  Imágenes: {currentProp.images?.length || 0} · Se guardan en D1
-                </p>
+                <p className="text-xs text-gray-500">Imágenes: {currentProp.images?.length || 0} · Se guardan en D1</p>
               </div>
-              <button
-                onClick={closePropertyModal}
-                className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5"
-                title="Cerrar"
-              >
+              <button onClick={closePropertyModal} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5" title="Cerrar">
                 <X size={20} />
               </button>
             </div>
@@ -1097,9 +1088,7 @@ const AdminDashboard: React.FC = () => {
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
                     value={currentProp.currency}
-                    onChange={e =>
-                      setCurrentProp(prev => ({ ...prev, currency: e.target.value as 'MXN' | 'USD' }))
-                    }
+                    onChange={e => setCurrentProp(prev => ({ ...prev, currency: e.target.value as 'MXN' | 'USD' }))}
                   >
                     <option value="MXN">MXN</option>
                     <option value="USD">USD</option>
@@ -1111,13 +1100,8 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.valuation ?? ''}
-                    onChange={e =>
-                      setCurrentProp(prev => ({
-                        ...prev,
-                        valuation: e.target.value === '' ? undefined : toNum(e.target.value)
-                      }))
-                    }
+                    value={(currentProp as any).valuation ?? ''}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, valuation: e.target.value === '' ? undefined : toNum(e.target.value) }))}
                     min={0}
                   />
                 </label>
@@ -1142,9 +1126,7 @@ const AdminDashboard: React.FC = () => {
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
                     value={currentProp.status}
-                    onChange={e =>
-                      setCurrentProp(prev => ({ ...prev, status: e.target.value as PropertyStatus }))
-                    }
+                    onChange={e => setCurrentProp(prev => ({ ...prev, status: e.target.value as PropertyStatus }))}
                   >
                     {STATUS.map(s => (
                       <option key={s} value={s}>
@@ -1211,7 +1193,7 @@ const AdminDashboard: React.FC = () => {
                   Video URL (opcional)
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.videoUrl || ''}
+                    value={(currentProp as any).videoUrl || ''}
                     onChange={e => setCurrentProp(prev => ({ ...prev, videoUrl: e.target.value }))}
                     placeholder="https://..."
                   />
@@ -1221,7 +1203,7 @@ const AdminDashboard: React.FC = () => {
                   Maps Link (opcional)
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.mapsLink || ''}
+                    value={(currentProp as any).mapsLink || ''}
                     onChange={e => setCurrentProp(prev => ({ ...prev, mapsLink: e.target.value }))}
                     placeholder="https://maps.google.com/..."
                   />
@@ -1232,29 +1214,21 @@ const AdminDashboard: React.FC = () => {
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div>
                     <div className="font-extrabold dark:text-white">Imágenes</div>
-                    <div className="text-xs text-gray-500">
-                      Puedes subir archivos (se guardan como base64 en D1) o pegar URLs.
-                    </div>
+                    <div className="text-xs text-gray-500">Puedes subir archivos (se guardan como base64 en D1) o pegar URLs.</div>
                   </div>
                   <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#800020] text-white font-bold cursor-pointer hover:bg-[#600018]">
                     <Plus size={18} /> Subir
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={e => handleUploadFiles(e.target.files)}
-                    />
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={e => handleUploadFiles(e.target.files)} />
                   </label>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {(currentProp.images || []).map((img, idx) => (
                     <div
-                      key={`${idx}-${img?.slice?.(0, 20) || 'img'}`}
+                      key={`${idx}-${(img as any)?.slice?.(0, 20) || 'img'}`}
                       className="relative rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950"
                     >
-                      <img src={img} alt="" className="w-full h-28 object-cover" />
+                      <img src={img as any} alt="" className="w-full h-28 object-cover" />
                       <button
                         onClick={() => removeImageAt(idx)}
                         className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/70 text-white hover:bg-black"
@@ -1285,7 +1259,7 @@ const AdminDashboard: React.FC = () => {
                 <label className="mt-4 inline-flex items-center gap-2 text-sm font-semibold dark:text-white">
                   <input
                     type="checkbox"
-                    checked={Boolean(currentProp.isPublished)}
+                    checked={Boolean((currentProp as any).isPublished)}
                     onChange={e => setCurrentProp(prev => ({ ...prev, isPublished: e.target.checked }))}
                   />
                   Publicada
@@ -1312,7 +1286,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* ===================== MODAL CONFIRM DELETE ===================== */}
+      {/* =================== MODAL CONFIRM DELETE =================== */}
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md p-8 text-center animate-in zoom-in duration-200">
@@ -1324,16 +1298,10 @@ const AdminDashboard: React.FC = () => {
                 : 'Esta acción no se puede deshacer.'}
             </p>
             <div className="flex gap-4">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl font-bold"
-              >
+              <button onClick={() => setConfirmDelete(null)} className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl font-bold">
                 Cancelar
               </button>
-              <button
-                onClick={confirmDeleteNow}
-                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg"
-              >
+              <button onClick={confirmDeleteNow} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg">
                 Eliminar
               </button>
             </div>
