@@ -21,6 +21,7 @@ import { City, Lead, Property, PropertyStatus, PropertyType, SiteContent } from 
 type Tab = 'properties' | 'profile' | 'leads' | 'reviews';
 type ConfirmDelete = null | { type: 'property' | 'lead' | 'review'; id: string };
 
+// Ajusta si tienes más ciudades en tu sistema
 const CITIES: City[] = ['Tijuana', 'Rosarito'];
 const TYPES: PropertyType[] = ['Casa', 'Departamento', 'Terreno', 'Local'];
 const STATUS: PropertyStatus[] = ['Disponible', 'Apartada', 'Vendida'];
@@ -57,20 +58,6 @@ const emptyPropertyDraft = (): Property => ({
   isPublished: true
 });
 
-// ===== Helpers Leads (estilo demo) =====
-const formatDate = (iso?: string) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
-};
-
-const waLink = (phone?: string, text?: string) => {
-  const digits = (phone || '').replace(/\D/g, '');
-  const msg = encodeURIComponent(text || 'Hola, gracias por tu interés. ¿En qué puedo ayudarte?');
-  return digits ? `https://wa.me/52${digits}?text=${msg}` : '#';
-};
-
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
 
@@ -84,7 +71,7 @@ const AdminDashboard: React.FC = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDelete>(null);
 
-  // Modal editar/crear (PROPIEDADES) — se queda intacto
+  // Modal editar/crear Propiedad
   const [isEditing, setIsEditing] = useState(false);
   const [savingProp, setSavingProp] = useState(false);
   const [currentProp, setCurrentProp] = useState<Property>(emptyPropertyDraft());
@@ -96,24 +83,10 @@ const AdminDashboard: React.FC = () => {
   const [profileMsg, setProfileMsg] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // ===== Leads (demo UI): selección + búsqueda =====
-  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  // Leads (estilo demo)
   const [leadSearch, setLeadSearch] = useState('');
-
-  const selectedLead = useMemo(() => {
-    if (!selectedLeadId) return null;
-    return leads.find(l => l.id === selectedLeadId) || null;
-  }, [selectedLeadId, leads]);
-
-  const filteredLeads = useMemo(() => {
-    const q = leadSearch.trim().toLowerCase();
-    if (!q) return leads;
-
-    return leads.filter((l: any) => {
-      const hay = `${l.name || ''} ${l.phone || ''} ${l.email || ''} ${l.message || ''} ${l.propertyTitle || ''} ${l.cityInterest || ''} ${l.source || ''}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [leads, leadSearch]);
+  const [leadStatusFilter, setLeadStatusFilter] = useState<string>('todos');
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -148,6 +121,20 @@ const AdminDashboard: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  // Cuando cambian leads, asegura selección válida
+  useEffect(() => {
+    if (!leads || leads.length === 0) {
+      setSelectedLeadId(null);
+      return;
+    }
+    if (selectedLeadId && leads.some(l => l.id === selectedLeadId)) return;
+    // Selecciona el más reciente por default
+    const sorted = [...leads].sort(
+      (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    setSelectedLeadId(sorted[0]?.id ?? null);
+  }, [leads, selectedLeadId]);
 
   const handleLogout = async () => {
     await apiService.logout();
@@ -195,17 +182,16 @@ const AdminDashboard: React.FC = () => {
   };
 
   const openEditProperty = (p: Property) => {
-    // normaliza para evitar undefined en numéricos
     const normalized: Property = {
       ...p,
-      price: toNum(p.price),
-      bedrooms: toInt(p.bedrooms),
-      bathrooms: toInt(p.bathrooms),
-      parking: toInt(p.parking),
-      currency: p.currency ?? 'MXN',
-      images: Array.isArray(p.images) ? p.images : [],
-      amenities: Array.isArray(p.amenities) ? p.amenities : [],
-      isPublished: p.isPublished ?? true
+      price: toNum((p as any).price),
+      bedrooms: toInt((p as any).bedrooms),
+      bathrooms: toInt((p as any).bathrooms),
+      parking: toInt((p as any).parking),
+      currency: (p as any).currency ?? 'MXN',
+      images: Array.isArray((p as any).images) ? (p as any).images : [],
+      amenities: Array.isArray((p as any).amenities) ? (p as any).amenities : [],
+      isPublished: (p as any).isPublished ?? true
     };
     setCurrentProp(normalized);
     setAmenitiesText((normalized.amenities || []).join(', '));
@@ -246,7 +232,6 @@ const AdminDashboard: React.FC = () => {
     setFormError('');
 
     try {
-      // Cloudflare Pages + D1: guardamos base64 (DataURL) directo en D1 dentro del JSON images
       const uploads = await Promise.all(Array.from(files).map(f => apiService.uploadImage(f)));
       setCurrentProp(prev => ({
         ...prev,
@@ -264,31 +249,32 @@ const AdminDashboard: React.FC = () => {
       .map(s => s.trim())
       .filter(Boolean);
 
-    const images = Array.isArray(draft.images) ? draft.images.filter(Boolean) : [];
+    const images = Array.isArray((draft as any).images) ? (draft as any).images.filter(Boolean) : [];
 
-    // IMPORTANT: evitar undefined (D1 no lo acepta en bind)
     const normalized: Property = {
       ...draft,
-      title: (draft.title || '').trim(),
-      zone: (draft.zone || '').trim(),
-      description: (draft.description || '').trim(),
-      price: toNum(draft.price),
-      currency: (draft.currency as any) === 'USD' ? 'USD' : 'MXN',
+      title: ((draft as any).title || '').trim(),
+      zone: ((draft as any).zone || '').trim(),
+      description: ((draft as any).description || '').trim(),
+      price: toNum((draft as any).price),
+      currency: (draft as any).currency === 'USD' ? 'USD' : 'MXN',
       valuation:
-        draft.valuation === undefined || draft.valuation === null || String(draft.valuation).trim() === ''
+        (draft as any).valuation === undefined ||
+          (draft as any).valuation === null ||
+          String((draft as any).valuation).trim() === ''
           ? undefined
-          : toNum(draft.valuation),
-      type: (TYPES.includes(draft.type) ? draft.type : 'Casa') as PropertyType,
-      status: (STATUS.includes(draft.status) ? draft.status : 'Disponible') as PropertyStatus,
-      bedrooms: clamp(toInt(draft.bedrooms), 0, 99),
-      bathrooms: clamp(toInt(draft.bathrooms), 0, 99),
-      parking: clamp(toInt(draft.parking), 0, 99),
+          : toNum((draft as any).valuation),
+      type: (TYPES.includes((draft as any).type) ? (draft as any).type : 'Casa') as PropertyType,
+      status: (STATUS.includes((draft as any).status) ? (draft as any).status : 'Disponible') as PropertyStatus,
+      bedrooms: clamp(toInt((draft as any).bedrooms), 0, 99),
+      bathrooms: clamp(toInt((draft as any).bathrooms), 0, 99),
+      parking: clamp(toInt((draft as any).parking), 0, 99),
       amenities,
       images,
-      videoUrl: (draft.videoUrl || '').trim(),
-      mapsLink: (draft.mapsLink || '').trim(),
-      isPublished: draft.isPublished ?? true,
-      createdAt: draft.createdAt || new Date().toISOString()
+      videoUrl: ((draft as any).videoUrl || '').trim(),
+      mapsLink: ((draft as any).mapsLink || '').trim(),
+      isPublished: (draft as any).isPublished ?? true,
+      createdAt: (draft as any).createdAt || new Date().toISOString()
     };
 
     return normalized;
@@ -301,7 +287,6 @@ const AdminDashboard: React.FC = () => {
     try {
       const normalized = normalizePropertyForSave(currentProp);
 
-      // Validaciones mínimas
       if (!normalized.title) {
         setFormError('El título es obligatorio.');
         setSavingProp(false);
@@ -324,8 +309,6 @@ const AdminDashboard: React.FC = () => {
       }
 
       await apiService.saveProperty(normalized);
-
-      // Refrescar listado
       await refreshData();
       setIsEditing(false);
     } catch (e: any) {
@@ -356,9 +339,71 @@ const AdminDashboard: React.FC = () => {
 
   const propertyCountLabel = useMemo(() => {
     const total = properties.length;
-    const published = properties.filter(p => p.isPublished).length;
+    const published = properties.filter(p => (p as any).isPublished).length;
     return `${published}/${total} publicadas`;
   }, [properties]);
+
+  // --- Leads helpers ---
+  const leadStatusOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of leads as any[]) {
+      if (l?.status) set.add(String(l.status));
+    }
+    const arr = Array.from(set);
+    arr.sort((a, b) => a.localeCompare(b));
+    return ['todos', ...arr];
+  }, [leads]);
+
+  const filteredLeads = useMemo(() => {
+    const s = leadSearch.trim().toLowerCase();
+    const list = (leads as any[])
+      .filter(l => {
+        const name = String(l?.name || '').toLowerCase();
+        const phone = String(l?.phone || '');
+        const email = String(l?.email || '').toLowerCase();
+        const message = String(l?.message || l?.text || '').toLowerCase();
+
+        const matchSearch =
+          !s ||
+          name.includes(s) ||
+          phone.includes(s) ||
+          email.includes(s) ||
+          message.includes(s);
+
+        const matchStatus = leadStatusFilter === 'todos' || String(l?.status || '') === leadStatusFilter;
+
+        return matchSearch && matchStatus;
+      })
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    return list as Lead[];
+  }, [leads, leadSearch, leadStatusFilter]);
+
+  const selectedLead = useMemo(() => {
+    return (filteredLeads as any[]).find(l => l.id === selectedLeadId) || (filteredLeads as any[])[0] || null;
+  }, [filteredLeads, selectedLeadId]);
+
+  const formatDateTime = (iso?: string) => {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return '';
+    }
+  };
+
+  const waLink = (phoneRaw?: string, text?: string) => {
+    const p = String(phoneRaw || '').replace(/[^\d]/g, '');
+    const msg = encodeURIComponent(text || 'Hola, vi tu información y quiero darte seguimiento 🙂');
+    if (!p) return '#';
+    return `https://wa.me/${p}?text=${msg}`;
+  };
+
+  const telLink = (phoneRaw?: string) => {
+    const p = String(phoneRaw || '').replace(/[^\d+]/g, '');
+    if (!p) return '#';
+    return `tel:${p}`;
+  };
 
   if (isLoading) {
     return (
@@ -371,7 +416,10 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col lg:flex-row transition-colors overflow-hidden">
       {isMobileSidebarOpen && (
-        <div onClick={() => setIsMobileSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[45] lg:hidden" />
+        <div
+          onClick={() => setIsMobileSidebarOpen(false)}
+          className="fixed inset-0 bg-black/50 z-[45] lg:hidden"
+        />
       )}
 
       <aside
@@ -435,7 +483,10 @@ const AdminDashboard: React.FC = () => {
           </nav>
 
           <div className="p-4 border-t border-white/10">
-            <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-lg text-red-400 hover:bg-red-500/10">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 p-3 rounded-lg text-red-400 hover:bg-red-500/10"
+            >
               <LogOut size={20} /> <span>Cerrar Sesión</span>
             </button>
           </div>
@@ -444,20 +495,28 @@ const AdminDashboard: React.FC = () => {
 
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
         <div className="lg:hidden mb-4 flex justify-between items-center">
-          <button onClick={() => setIsMobileSidebarOpen(true)} className="p-2 bg-[#111827] text-white rounded-lg">
+          <button
+            onClick={() => setIsMobileSidebarOpen(true)}
+            className="p-2 bg-[#111827] text-white rounded-lg"
+          >
             <Menu size={24} />
           </button>
-          <button onClick={refreshData} className="p-2 bg-gray-200 dark:bg-gray-800 rounded-lg dark:text-white">
+          <button
+            onClick={refreshData}
+            className="p-2 bg-gray-200 dark:bg-gray-800 rounded-lg dark:text-white"
+          >
             <RefreshCw size={20} />
           </button>
         </div>
 
-        {/* ===== PROPIEDADES (intacto) ===== */}
+        {/* -------------------- PROPERTIES -------------------- */}
         {activeTab === 'properties' && (
           <div>
             <div className="flex justify-between items-center mb-8">
               <div>
-                <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tight">Propiedades</h2>
+                <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tight">
+                  Propiedades
+                </h2>
                 <div className="text-xs text-gray-500 mt-1">{propertyCountLabel}</div>
               </div>
 
@@ -472,15 +531,19 @@ const AdminDashboard: React.FC = () => {
             <div className="grid grid-cols-1 gap-4">
               {properties.map(p => (
                 <div
-                  key={p.id}
+                  key={(p as any).id}
                   className="bg-white dark:bg-gray-800 p-4 rounded-2xl flex items-center justify-between border dark:border-gray-700 shadow-sm"
                 >
                   <div className="flex items-center gap-4 min-w-0">
-                    <img src={p.images?.[0] || ''} className="w-12 h-12 rounded-lg object-cover bg-gray-100" alt="" />
+                    <img
+                      src={(p as any).images?.[0] || ''}
+                      className="w-12 h-12 rounded-lg object-cover bg-gray-100"
+                      alt=""
+                    />
                     <div className="min-w-0">
-                      <div className="font-bold dark:text-white truncate">{p.title}</div>
+                      <div className="font-bold dark:text-white truncate">{(p as any).title}</div>
                       <div className="text-xs text-gray-500 truncate">
-                        {p.city} · {p.zone} · {p.isPublished ? 'Publicada' : 'Oculta'}
+                        {(p as any).city} · {(p as any).zone} · {(p as any).isPublished ? 'Publicada' : 'Oculta'}
                       </div>
                     </div>
                   </div>
@@ -494,7 +557,7 @@ const AdminDashboard: React.FC = () => {
                       <Edit size={18} />
                     </button>
                     <button
-                      onClick={() => setConfirmDelete({ type: 'property', id: p.id })}
+                      onClick={() => setConfirmDelete({ type: 'property', id: (p as any).id })}
                       className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-white/5 rounded-lg"
                       title="Eliminar"
                     >
@@ -513,12 +576,17 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* ===== RESEÑAS (intacto) ===== */}
+        {/* -------------------- REVIEWS -------------------- */}
         {activeTab === 'reviews' && (
           <div>
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tighter">Moderación de Reseñas (KV)</h2>
-              <button onClick={refreshData} className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2">
+              <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tighter">
+                Moderación de Reseñas (KV)
+              </h2>
+              <button
+                onClick={refreshData}
+                className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2"
+              >
                 <RefreshCw size={16} /> Actualizar
               </button>
             </div>
@@ -552,7 +620,9 @@ const AdminDashboard: React.FC = () => {
                           />
                         ))}
                       </div>
-                      <div className="text-[10px] text-gray-400 font-mono">{t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}</div>
+                      <div className="text-[10px] text-gray-400 font-mono">
+                        {t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}
+                      </div>
                     </div>
 
                     {!t.approved && t.status !== 'deleted' && (
@@ -594,160 +664,179 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* ===== LEADS (AHORA COMO DEMO: lista + detalle) ===== */}
+        {/* -------------------- LEADS (UPDATED) -------------------- */}
         {activeTab === 'leads' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center justify-between mb-8">
               <h2 className="text-2xl font-bold dark:text-white">Interesados</h2>
-              <button onClick={refreshData} className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2">
+              <button
+                onClick={refreshData}
+                className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2"
+              >
                 <RefreshCw size={16} /> Actualizar
               </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Lista */}
-              <div className="lg:col-span-5">
-                <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-4 shadow-sm">
+              <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-4 shadow-sm">
+                <div className="flex flex-col md:flex-row gap-3 mb-4">
                   <input
                     value={leadSearch}
                     onChange={e => setLeadSearch(e.target.value)}
                     placeholder="Buscar lead (nombre, tel, correo, mensaje...)"
-                    className="w-full px-4 py-3 rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-900 dark:text-white outline-none"
+                    className="w-full p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
                   />
 
-                  <div className="mt-4 space-y-3 max-h-[70vh] overflow-auto pr-1">
-                    {filteredLeads.map((l: any) => {
-                      const active = l.id === selectedLeadId;
-                      return (
-                        <button
-                          key={l.id}
-                          onClick={() => setSelectedLeadId(l.id)}
-                          className={`w-full text-left p-4 rounded-2xl border transition-all ${active
-                              ? 'border-[#800020] bg-[#800020]/5 dark:bg-[#800020]/10'
-                              : 'border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/40'
-                            }`}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="font-bold dark:text-white truncate">{l.name || 'Sin nombre'}</div>
-                              <div className="text-sm text-gray-500 truncate">
-                                {l.phone || ''} {l.email ? `· ${l.email}` : ''}
-                              </div>
+                  <select
+                    value={leadStatusFilter}
+                    onChange={e => setLeadStatusFilter(e.target.value)}
+                    className="w-full md:w-56 p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
+                    disabled={leadStatusOptions.length <= 1}
+                    title={leadStatusOptions.length <= 1 ? 'No hay estatus disponibles en tus leads' : 'Filtrar por estatus'}
+                  >
+                    <option value="todos">Estatus: Todos</option>
+                    {leadStatusOptions
+                      .filter(s => s !== 'todos')
+                      .map(s => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                  </select>
+                </div>
 
-                              <div className="text-[11px] text-gray-400 font-mono mt-1 truncate">
-                                {formatDate(l.createdAt)}
+                <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
+                  {filteredLeads.map((l: any) => {
+                    const isSelected = (selectedLead?.id || null) === l.id;
+                    return (
+                      <button
+                        key={l.id}
+                        onClick={() => setSelectedLeadId(l.id)}
+                        className={`w-full text-left p-4 rounded-2xl border transition-all ${isSelected
+                            ? 'border-[#800020] bg-[#800020]/5'
+                            : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5'
+                          }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-extrabold dark:text-white truncate">{l.name || 'Sin nombre'}</div>
+                            <div className="text-sm text-gray-500 truncate">{l.phone || 'Sin teléfono'}</div>
+                            {l.createdAt && (
+                              <div className="text-[11px] text-gray-400 mt-1">{formatDateTime(l.createdAt)}</div>
+                            )}
+                            {(l.message || l.text) && (
+                              <div className="text-sm text-gray-600 dark:text-gray-300 mt-2 line-clamp-2">
+                                {l.message || l.text}
                               </div>
-
-                              {l.message && (
-                                <div className="text-xs text-gray-500 mt-2 line-clamp-2">
-                                  {l.message}
-                                </div>
-                              )}
-                            </div>
+                            )}
                           </div>
-                        </button>
-                      );
-                    })}
 
-                    {filteredLeads.length === 0 && (
-                      <div className="text-center text-gray-500 py-16 border-2 border-dashed rounded-3xl dark:border-gray-700">
-                        Aún no hay leads (o no coincide la búsqueda).
-                      </div>
-                    )}
-                  </div>
+                          <div className="shrink-0 flex items-center gap-2">
+                            {l.status && (
+                              <span className="text-[10px] px-2 py-1 rounded-full font-bold uppercase tracking-wide bg-gray-100 dark:bg-gray-700 dark:text-white">
+                                {String(l.status)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+
+                  {filteredLeads.length === 0 && (
+                    <div className="text-center text-gray-500 py-16 border-2 border-dashed rounded-3xl">
+                      No hay leads con ese filtro.
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Detalle */}
-              <div className="lg:col-span-7">
-                <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 shadow-sm min-h-[320px]">
-                  {!selectedLead ? (
-                    <div className="text-center text-gray-500 py-16">
-                      Selecciona un lead para ver el detalle.
+              <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 shadow-sm">
+                {!selectedLead ? (
+                  <div className="text-center text-gray-500 py-20">
+                    Selecciona un lead para ver el detalle.
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-2xl font-extrabold dark:text-white truncate">
+                          {(selectedLead as any).name || 'Sin nombre'}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {(selectedLead as any).phone || 'Sin teléfono'}
+                        </div>
+                        {(selectedLead as any).createdAt && (
+                          <div className="text-[11px] text-gray-400 mt-1">
+                            {formatDateTime((selectedLead as any).createdAt)}
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => setConfirmDelete({ type: 'lead', id: (selectedLead as any).id })}
+                        className="p-2 rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        title="Eliminar lead"
+                      >
+                        <Trash2 size={18} />
+                      </button>
                     </div>
-                  ) : (
-                    <div className="space-y-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-xl font-bold dark:text-white truncate">{(selectedLead as any).name || 'Sin nombre'}</div>
-                          <div className="text-sm text-gray-500 truncate">
-                            {(selectedLead as any).phone || ''} {(selectedLead as any).email ? `· ${(selectedLead as any).email}` : ''}
-                          </div>
-                          <div className="text-[11px] text-gray-400 font-mono mt-1">{formatDate((selectedLead as any).createdAt)}</div>
-                        </div>
 
-                        <button
-                          onClick={() => setConfirmDelete({ type: 'lead', id: (selectedLead as any).id })}
-                          className="p-2 rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                          title="Eliminar lead"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
+                    {/* Acciones (sin Correo) */}
+                    <div className="flex flex-wrap gap-3">
+                      <a
+                        href={waLink((selectedLead as any).phone, (selectedLead as any).message || (selectedLead as any).text)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-4 py-2 rounded-xl font-bold bg-green-100 text-green-700 hover:bg-green-200"
+                      >
+                        WhatsApp
+                      </a>
 
-                      {/* Acciones rápidas */}
-                      <div className="flex flex-wrap gap-2">
-                        <a
-                          href={waLink((selectedLead as any).phone)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-4 py-2 rounded-xl bg-green-50 text-green-700 font-bold text-sm hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300"
-                        >
-                          WhatsApp
-                        </a>
-                        <a
-                          href={(selectedLead as any).phone ? `tel:${(selectedLead as any).phone}` : '#'}
-                          className="px-4 py-2 rounded-xl bg-gray-100 font-bold text-sm hover:bg-gray-200 dark:bg-gray-700 dark:text-white"
-                        >
-                          Llamar
-                        </a>
-                        <a
-                          href={(selectedLead as any).email ? `mailto:${(selectedLead as any).email}` : '#'}
-                          className="px-4 py-2 rounded-xl bg-gray-100 font-bold text-sm hover:bg-gray-200 dark:bg-gray-700 dark:text-white"
-                        >
-                          Correo
-                        </a>
-                      </div>
+                      <a
+                        href={telLink((selectedLead as any).phone)}
+                        className="px-4 py-2 rounded-xl font-bold bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
+                      >
+                        Llamar
+                      </a>
+                    </div>
 
-                      {/* Mensaje */}
-                      {(selectedLead as any).message && (
-                        <div className="bg-gray-50 dark:bg-gray-900/40 border dark:border-gray-700 rounded-2xl p-4">
-                          <div className="text-xs font-bold text-gray-500 mb-1">Mensaje</div>
-                          <div className="text-gray-700 dark:text-gray-200 whitespace-pre-wrap">
-                            {(selectedLead as any).message}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Campos extra si existen */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <div className="text-xs font-bold text-gray-500">Fuente</div>
-                          <div className="mt-1 px-4 py-3 rounded-2xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 dark:text-white">
-                            {(selectedLead as any).source || '—'}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-gray-500">Ciudad interés</div>
-                          <div className="mt-1 px-4 py-3 rounded-2xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 dark:text-white">
-                            {(selectedLead as any).cityInterest || '—'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-xs text-gray-400">
-                        Tip: este módulo es “como demo” sin requerir endpoints nuevos (solo lectura + eliminar).
-                        Si quieres **marcar atendido / notas / estatus**, lo agrego, pero requiere endpoint para actualizar lead.
+                    {/* Mensaje */}
+                    <div className="border dark:border-gray-700 rounded-2xl p-4">
+                      <div className="text-xs font-bold text-gray-500 mb-2">Mensaje</div>
+                      <div className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
+                        {(selectedLead as any).message || (selectedLead as any).text || '—'}
                       </div>
                     </div>
-                  )}
-                </div>
+
+                    {/* Campos (sin Fuente) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="border dark:border-gray-700 rounded-2xl p-4">
+                        <div className="text-xs font-bold text-gray-500 mb-2">Ciudad interés</div>
+                        <div className="font-semibold dark:text-white">
+                          {(selectedLead as any).cityInterest || (selectedLead as any).city || '—'}
+                        </div>
+                      </div>
+
+                      <div className="border dark:border-gray-700 rounded-2xl p-4">
+                        <div className="text-xs font-bold text-gray-500 mb-2">Correo</div>
+                        <div className="font-semibold dark:text-white">
+                          {(selectedLead as any).email || '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Nota/leyenda eliminada a propósito */}
+                  </div>
+                )}
               </div>
             </div>
           </div>
         )}
 
-        {/* ===== PERFIL (intacto) ===== */}
+        {/* -------------------- PROFILE -------------------- */}
         {activeTab === 'profile' && profile && (
           <div className="max-w-3xl">
             <div className="flex items-center justify-between mb-6">
@@ -761,7 +850,9 @@ const AdminDashboard: React.FC = () => {
               </button>
             </div>
 
-            {profileMsg && <div className="mb-4 text-sm font-semibold text-[#800020]">{profileMsg}</div>}
+            {profileMsg && (
+              <div className="mb-4 text-sm font-semibold text-[#800020]">{profileMsg}</div>
+            )}
 
             <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 space-y-4 shadow-sm">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -769,8 +860,8 @@ const AdminDashboard: React.FC = () => {
                   Nombre a mostrar
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={profile.displayName}
-                    onChange={e => setProfile({ ...profile, displayName: e.target.value })}
+                    value={(profile as any).displayName}
+                    onChange={e => setProfile({ ...(profile as any), displayName: e.target.value })}
                   />
                 </label>
 
@@ -778,8 +869,8 @@ const AdminDashboard: React.FC = () => {
                   Foto (URL)
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={profile.profilePic}
-                    onChange={e => setProfile({ ...profile, profilePic: e.target.value })}
+                    value={(profile as any).profilePic}
+                    onChange={e => setProfile({ ...(profile as any), profilePic: e.target.value })}
                   />
                 </label>
               </div>
@@ -788,8 +879,8 @@ const AdminDashboard: React.FC = () => {
                 Título hero
                 <input
                   className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                  value={profile.heroTitle}
-                  onChange={e => setProfile({ ...profile, heroTitle: e.target.value })}
+                  value={(profile as any).heroTitle}
+                  onChange={e => setProfile({ ...(profile as any), heroTitle: e.target.value })}
                 />
               </label>
 
@@ -797,8 +888,8 @@ const AdminDashboard: React.FC = () => {
                 Subtítulo hero
                 <input
                   className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                  value={profile.heroSub}
-                  onChange={e => setProfile({ ...profile, heroSub: e.target.value })}
+                  value={(profile as any).heroSub}
+                  onChange={e => setProfile({ ...(profile as any), heroSub: e.target.value })}
                 />
               </label>
 
@@ -806,8 +897,8 @@ const AdminDashboard: React.FC = () => {
                 Bio corta
                 <input
                   className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                  value={profile.bioShort}
-                  onChange={e => setProfile({ ...profile, bioShort: e.target.value })}
+                  value={(profile as any).bioShort}
+                  onChange={e => setProfile({ ...(profile as any), bioShort: e.target.value })}
                 />
               </label>
 
@@ -815,8 +906,8 @@ const AdminDashboard: React.FC = () => {
                 Bio larga
                 <textarea
                   className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900 min-h-[140px]"
-                  value={profile.bioLong}
-                  onChange={e => setProfile({ ...profile, bioLong: e.target.value })}
+                  value={(profile as any).bioLong}
+                  onChange={e => setProfile({ ...(profile as any), bioLong: e.target.value })}
                 />
               </label>
 
@@ -825,8 +916,8 @@ const AdminDashboard: React.FC = () => {
                   WhatsApp
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={profile.whatsapp}
-                    onChange={e => setProfile({ ...profile, whatsapp: e.target.value })}
+                    value={(profile as any).whatsapp}
+                    onChange={e => setProfile({ ...(profile as any), whatsapp: e.target.value })}
                   />
                 </label>
 
@@ -834,8 +925,8 @@ const AdminDashboard: React.FC = () => {
                   Email
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={profile.email}
-                    onChange={e => setProfile({ ...profile, email: e.target.value })}
+                    value={(profile as any).email}
+                    onChange={e => setProfile({ ...(profile as any), email: e.target.value })}
                   />
                 </label>
 
@@ -843,8 +934,8 @@ const AdminDashboard: React.FC = () => {
                   Instagram
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={profile.instagram}
-                    onChange={e => setProfile({ ...profile, instagram: e.target.value })}
+                    value={(profile as any).instagram}
+                    onChange={e => setProfile({ ...(profile as any), instagram: e.target.value })}
                   />
                 </label>
 
@@ -852,8 +943,8 @@ const AdminDashboard: React.FC = () => {
                   Facebook
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-700 dark:bg-gray-900"
-                    value={profile.facebook}
-                    onChange={e => setProfile({ ...profile, facebook: e.target.value })}
+                    value={(profile as any).facebook}
+                    onChange={e => setProfile({ ...(profile as any), facebook: e.target.value })}
                   />
                 </label>
               </div>
@@ -862,7 +953,7 @@ const AdminDashboard: React.FC = () => {
         )}
       </main>
 
-      {/* MODAL: Crear / Editar Propiedad (intacto) */}
+      {/* MODAL: Crear / Editar Propiedad */}
       {isEditing && (
         <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-900 w-full max-w-4xl rounded-3xl shadow-2xl border dark:border-gray-800 overflow-hidden">
@@ -870,9 +961,11 @@ const AdminDashboard: React.FC = () => {
             <div className="px-6 py-4 border-b dark:border-gray-800 flex items-center justify-between">
               <div className="min-w-0">
                 <h3 className="text-lg md:text-xl font-extrabold dark:text-white truncate">
-                  {currentProp?.id ? 'Editar Propiedad' : 'Nueva Propiedad'}
+                  {(currentProp as any)?.id ? 'Editar Propiedad' : 'Nueva Propiedad'}
                 </h3>
-                <p className="text-xs text-gray-500">Imágenes: {currentProp.images?.length || 0} · Se guardan en D1</p>
+                <p className="text-xs text-gray-500">
+                  Imágenes: {(currentProp as any).images?.length || 0} · Se guardan en D1
+                </p>
               </div>
               <button
                 onClick={closePropertyModal}
@@ -896,8 +989,8 @@ const AdminDashboard: React.FC = () => {
                   Título
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.title}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, title: e.target.value }))}
+                    value={(currentProp as any).title}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), title: e.target.value }))}
                     placeholder="Ej. Casa en Santa Fe"
                   />
                 </label>
@@ -906,8 +999,8 @@ const AdminDashboard: React.FC = () => {
                   Ciudad
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.city}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, city: e.target.value as City }))}
+                    value={(currentProp as any).city}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), city: e.target.value as City }))}
                   >
                     {CITIES.map(c => (
                       <option key={c} value={c}>
@@ -921,8 +1014,8 @@ const AdminDashboard: React.FC = () => {
                   Zona
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.zone}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, zone: e.target.value }))}
+                    value={(currentProp as any).zone}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), zone: e.target.value }))}
                     placeholder="Ej. Santa Fe"
                   />
                 </label>
@@ -932,8 +1025,8 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.price}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, price: toNum(e.target.value) }))}
+                    value={(currentProp as any).price}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), price: toNum(e.target.value) }))}
                     min={0}
                   />
                 </label>
@@ -942,8 +1035,10 @@ const AdminDashboard: React.FC = () => {
                   Moneda
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.currency}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, currency: e.target.value as 'MXN' | 'USD' }))}
+                    value={(currentProp as any).currency}
+                    onChange={e =>
+                      setCurrentProp(prev => ({ ...(prev as any), currency: e.target.value as 'MXN' | 'USD' }))
+                    }
                   >
                     <option value="MXN">MXN</option>
                     <option value="USD">USD</option>
@@ -955,10 +1050,10 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.valuation ?? ''}
+                    value={(currentProp as any).valuation ?? ''}
                     onChange={e =>
                       setCurrentProp(prev => ({
-                        ...prev,
+                        ...(prev as any),
                         valuation: e.target.value === '' ? undefined : toNum(e.target.value)
                       }))
                     }
@@ -970,8 +1065,8 @@ const AdminDashboard: React.FC = () => {
                   Tipo
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.type}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, type: e.target.value as PropertyType }))}
+                    value={(currentProp as any).type}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), type: e.target.value as PropertyType }))}
                   >
                     {TYPES.map(t => (
                       <option key={t} value={t}>
@@ -985,8 +1080,8 @@ const AdminDashboard: React.FC = () => {
                   Estatus
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.status}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, status: e.target.value as PropertyStatus }))}
+                    value={(currentProp as any).status}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), status: e.target.value as PropertyStatus }))}
                   >
                     {STATUS.map(s => (
                       <option key={s} value={s}>
@@ -1001,8 +1096,8 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.bedrooms}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, bedrooms: toInt(e.target.value) }))}
+                    value={(currentProp as any).bedrooms}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), bedrooms: toInt(e.target.value) }))}
                     min={0}
                   />
                 </label>
@@ -1012,8 +1107,8 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.bathrooms}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, bathrooms: toInt(e.target.value) }))}
+                    value={(currentProp as any).bathrooms}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), bathrooms: toInt(e.target.value) }))}
                     min={0}
                   />
                 </label>
@@ -1023,8 +1118,8 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.parking}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, parking: toInt(e.target.value) }))}
+                    value={(currentProp as any).parking}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), parking: toInt(e.target.value) }))}
                     min={0}
                   />
                 </label>
@@ -1033,8 +1128,8 @@ const AdminDashboard: React.FC = () => {
                   Descripción
                   <textarea
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950 min-h-[140px]"
-                    value={currentProp.description}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, description: e.target.value }))}
+                    value={(currentProp as any).description}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), description: e.target.value }))}
                     placeholder="Describe la propiedad..."
                   />
                 </label>
@@ -1053,8 +1148,8 @@ const AdminDashboard: React.FC = () => {
                   Video URL (opcional)
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.videoUrl || ''}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, videoUrl: e.target.value }))}
+                    value={(currentProp as any).videoUrl || ''}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), videoUrl: e.target.value }))}
                     placeholder="https://..."
                   />
                 </label>
@@ -1063,8 +1158,8 @@ const AdminDashboard: React.FC = () => {
                   Maps Link (opcional)
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={currentProp.mapsLink || ''}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, mapsLink: e.target.value }))}
+                    value={(currentProp as any).mapsLink || ''}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), mapsLink: e.target.value }))}
                     placeholder="https://maps.google.com/..."
                   />
                 </label>
@@ -1092,7 +1187,7 @@ const AdminDashboard: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {(currentProp.images || []).map((img, idx) => (
+                  {((currentProp as any).images || []).map((img: string, idx: number) => (
                     <div
                       key={`${idx}-${img?.slice?.(0, 20) || 'img'}`}
                       className="relative rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950"
@@ -1128,8 +1223,8 @@ const AdminDashboard: React.FC = () => {
                 <label className="mt-4 inline-flex items-center gap-2 text-sm font-semibold dark:text-white">
                   <input
                     type="checkbox"
-                    checked={Boolean(currentProp.isPublished)}
-                    onChange={e => setCurrentProp(prev => ({ ...prev, isPublished: e.target.checked }))}
+                    checked={Boolean((currentProp as any).isPublished)}
+                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), isPublished: e.target.checked }))}
                   />
                   Publicada
                 </label>
@@ -1168,10 +1263,16 @@ const AdminDashboard: React.FC = () => {
                 : 'Esta acción no se puede deshacer.'}
             </p>
             <div className="flex gap-4">
-              <button onClick={() => setConfirmDelete(null)} className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl font-bold">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 rounded-xl font-bold"
+              >
                 Cancelar
               </button>
-              <button onClick={confirmDeleteNow} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg">
+              <button
+                onClick={confirmDeleteNow}
+                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg"
+              >
                 Eliminar
               </button>
             </div>
