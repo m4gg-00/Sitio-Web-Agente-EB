@@ -21,10 +21,15 @@ import { City, Lead, Property, PropertyStatus, PropertyType, SiteContent } from 
 type Tab = 'properties' | 'profile' | 'leads' | 'reviews';
 type ConfirmDelete = null | { type: 'property' | 'lead' | 'review'; id: string };
 
-// Ajusta si tienes más ciudades en tu sistema
+// ==== Propiedades (NO se cambia tu lógica) ====
 const CITIES: City[] = ['Tijuana', 'Rosarito'];
 const TYPES: PropertyType[] = ['Casa', 'Departamento', 'Terreno', 'Local'];
 const STATUS: PropertyStatus[] = ['Disponible', 'Apartada', 'Vendida'];
+
+// ==== Leads (nuevo) ====
+type LeadStatusUI = 'nuevo' | 'contactado' | 'en seguimiento' | 'cerrado';
+const LEAD_STATUS: LeadStatusUI[] = ['nuevo', 'contactado', 'en seguimiento', 'cerrado'];
+const LS_KEY = 'lead_status_map_v1';
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 const toNum = (v: any) => {
@@ -58,6 +63,40 @@ const emptyPropertyDraft = (): Property => ({
   isPublished: true
 });
 
+const safeStr = (v: any) => (typeof v === 'string' ? v : v == null ? '' : String(v));
+const safeDateLabel = (iso: any) => {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString();
+  } catch {
+    return '';
+  }
+};
+
+const getLeadStatusFromLead = (l: any): LeadStatusUI => {
+  const raw = safeStr(l?.status).toLowerCase();
+  if (raw === 'contactado') return 'contactado';
+  if (raw === 'en seguimiento' || raw === 'seguimiento') return 'en seguimiento';
+  if (raw === 'cerrado') return 'cerrado';
+  return 'nuevo';
+};
+
+const statusBadge = (s: LeadStatusUI) => {
+  switch (s) {
+    case 'nuevo':
+      return { label: 'NUEVO', cls: 'bg-[#800020]/10 text-[#800020] border-[#800020]/20' };
+    case 'contactado':
+      return { label: 'CONTACTADO', cls: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-200 dark:border-blue-900/40' };
+    case 'en seguimiento':
+      return { label: 'EN SEGUIMIENTO', cls: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-200 dark:border-amber-900/40' };
+    case 'cerrado':
+      return { label: 'CERRADO', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-200 dark:border-emerald-900/40' };
+    default:
+      return { label: 'NUEVO', cls: 'bg-[#800020]/10 text-[#800020] border-[#800020]/20' };
+  }
+};
+
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
 
@@ -71,7 +110,7 @@ const AdminDashboard: React.FC = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDelete>(null);
 
-  // Modal editar/crear Propiedad
+  // Modal editar/crear propiedad
   const [isEditing, setIsEditing] = useState(false);
   const [savingProp, setSavingProp] = useState(false);
   const [currentProp, setCurrentProp] = useState<Property>(emptyPropertyDraft());
@@ -83,10 +122,35 @@ const AdminDashboard: React.FC = () => {
   const [profileMsg, setProfileMsg] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // Leads (estilo demo)
-  const [leadSearch, setLeadSearch] = useState('');
-  const [leadStatusFilter, setLeadStatusFilter] = useState<string>('todos');
-  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  // Leads UI
+  const [leadQuery, setLeadQuery] = useState('');
+  const [leadStatusFilter, setLeadStatusFilter] = useState<'Todos' | LeadStatusUI>('Todos');
+  const [selectedLeadId, setSelectedLeadId] = useState<string>('');
+
+  // Lead status local persistence map
+  const [leadStatusMap, setLeadStatusMap] = useState<Record<string, LeadStatusUI>>({});
+
+  useEffect(() => {
+    // Cargar statuses guardados
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (obj && typeof obj === 'object') setLeadStatusMap(obj);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    // Guardar statuses
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(leadStatusMap));
+    } catch {
+      // ignore
+    }
+  }, [leadStatusMap]);
 
   useEffect(() => {
     const init = async () => {
@@ -122,20 +186,6 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Cuando cambian leads, asegura selección válida
-  useEffect(() => {
-    if (!leads || leads.length === 0) {
-      setSelectedLeadId(null);
-      return;
-    }
-    if (selectedLeadId && leads.some(l => l.id === selectedLeadId)) return;
-    // Selecciona el más reciente por default
-    const sorted = [...leads].sort(
-      (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-    );
-    setSelectedLeadId(sorted[0]?.id ?? null);
-  }, [leads, selectedLeadId]);
-
   const handleLogout = async () => {
     await apiService.logout();
     navigate('/');
@@ -158,8 +208,13 @@ const AdminDashboard: React.FC = () => {
         setProperties(prev => prev.filter(p => p.id !== confirmDelete.id));
       } else if (confirmDelete.type === 'lead') {
         await apiService.deleteLead(confirmDelete.id);
-        setLeads(prev => prev.filter(l => l.id !== confirmDelete.id));
-        if (selectedLeadId === confirmDelete.id) setSelectedLeadId(null);
+        setLeads(prev => prev.filter(l => (l as any).id !== confirmDelete.id));
+        setSelectedLeadId(prev => (prev === confirmDelete.id ? '' : prev));
+        setLeadStatusMap(prev => {
+          const copy = { ...prev };
+          delete copy[confirmDelete.id];
+          return copy;
+        });
       } else if (confirmDelete.type === 'review') {
         await apiService.deleteTestimonial(confirmDelete.id);
         setTestimonials(prev =>
@@ -172,6 +227,7 @@ const AdminDashboard: React.FC = () => {
     setConfirmDelete(null);
   };
 
+  // ===== PROPIEDADES (SIN CAMBIOS DE FONDO) =====
   const openNewProperty = () => {
     const draft = emptyPropertyDraft();
     setCurrentProp(draft);
@@ -232,7 +288,7 @@ const AdminDashboard: React.FC = () => {
     setFormError('');
 
     try {
-      const uploads = await Promise.all(Array.from(files).map(f => apiService.uploadImage(f)));
+      const uploads = await Promise.all(Array.from(files).map(f => (apiService as any).uploadImage(f)));
       setCurrentProp(prev => ({
         ...prev,
         images: [...(prev.images || []), ...uploads]
@@ -251,19 +307,20 @@ const AdminDashboard: React.FC = () => {
 
     const images = Array.isArray((draft as any).images) ? (draft as any).images.filter(Boolean) : [];
 
+    const valuationRaw = (draft as any).valuation;
+    const valuationNormalized =
+      valuationRaw === undefined || valuationRaw === null || String(valuationRaw).trim() === ''
+        ? undefined
+        : toNum(valuationRaw);
+
     const normalized: Property = {
-      ...draft,
-      title: ((draft as any).title || '').trim(),
-      zone: ((draft as any).zone || '').trim(),
-      description: ((draft as any).description || '').trim(),
+      ...(draft as any),
+      title: safeStr((draft as any).title).trim(),
+      zone: safeStr((draft as any).zone).trim(),
+      description: safeStr((draft as any).description).trim(),
       price: toNum((draft as any).price),
       currency: (draft as any).currency === 'USD' ? 'USD' : 'MXN',
-      valuation:
-        (draft as any).valuation === undefined ||
-          (draft as any).valuation === null ||
-          String((draft as any).valuation).trim() === ''
-          ? undefined
-          : toNum((draft as any).valuation),
+      valuation: valuationNormalized,
       type: (TYPES.includes((draft as any).type) ? (draft as any).type : 'Casa') as PropertyType,
       status: (STATUS.includes((draft as any).status) ? (draft as any).status : 'Disponible') as PropertyStatus,
       bedrooms: clamp(toInt((draft as any).bedrooms), 0, 99),
@@ -271,8 +328,8 @@ const AdminDashboard: React.FC = () => {
       parking: clamp(toInt((draft as any).parking), 0, 99),
       amenities,
       images,
-      videoUrl: ((draft as any).videoUrl || '').trim(),
-      mapsLink: ((draft as any).mapsLink || '').trim(),
+      videoUrl: safeStr((draft as any).videoUrl).trim(),
+      mapsLink: safeStr((draft as any).mapsLink).trim(),
       isPublished: (draft as any).isPublished ?? true,
       createdAt: (draft as any).createdAt || new Date().toISOString()
     };
@@ -287,35 +344,18 @@ const AdminDashboard: React.FC = () => {
     try {
       const normalized = normalizePropertyForSave(currentProp);
 
-      if (!normalized.title) {
-        setFormError('El título es obligatorio.');
-        setSavingProp(false);
-        return;
-      }
-      if (!normalized.zone) {
-        setFormError('La zona es obligatoria.');
-        setSavingProp(false);
-        return;
-      }
-      if (!normalized.description) {
-        setFormError('La descripción es obligatoria.');
-        setSavingProp(false);
-        return;
-      }
-      if (!normalized.images || normalized.images.length === 0) {
-        setFormError('Agrega al menos 1 imagen (archivo o URL).');
-        setSavingProp(false);
-        return;
-      }
+      if (!normalized.title) return void setFormError('El título es obligatorio.'), setSavingProp(false);
+      if (!normalized.zone) return void setFormError('La zona es obligatoria.'), setSavingProp(false);
+      if (!normalized.description) return void setFormError('La descripción es obligatoria.'), setSavingProp(false);
+      if (!normalized.images || normalized.images.length === 0)
+        return void setFormError('Agrega al menos 1 imagen (archivo o URL).'), setSavingProp(false);
 
-      await apiService.saveProperty(normalized);
+      await apiService.saveProperty(normalized as any);
       await refreshData();
       setIsEditing(false);
     } catch (e: any) {
       console.error(e);
-      setFormError(
-        e?.message ? `Error al guardar: ${e.message}` : 'Error al guardar. Revisa la consola y vuelve a intentar.'
-      );
+      setFormError(e?.message ? `Error al guardar: ${e.message}` : 'Error al guardar. Revisa la consola y vuelve a intentar.');
     } finally {
       setSavingProp(false);
     }
@@ -343,68 +383,92 @@ const AdminDashboard: React.FC = () => {
     return `${published}/${total} publicadas`;
   }, [properties]);
 
-  // --- Leads helpers ---
-  const leadStatusOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const l of leads as any[]) {
-      if (l?.status) set.add(String(l.status));
+  // ===== LEADS: status + filtro + layout demo =====
+  const leadsEnriched = useMemo(() => {
+    return (leads || []).map((l: any) => {
+      const id = safeStr(l?.id);
+      const statusFromLead = getLeadStatusFromLead(l);
+      const status = leadStatusMap[id] ?? statusFromLead;
+      return { ...l, id, __statusUI: status as LeadStatusUI };
+    });
+  }, [leads, leadStatusMap]);
+
+  const leadsFiltered = useMemo(() => {
+    const q = leadQuery.trim().toLowerCase();
+    const statusFilter = leadStatusFilter;
+
+    return leadsEnriched.filter((l: any) => {
+      const statusOk = statusFilter === 'Todos' ? true : l.__statusUI === statusFilter;
+      if (!statusOk) return false;
+
+      if (!q) return true;
+
+      const hay =
+        [
+          l?.name,
+          l?.phone,
+          l?.message,
+          l?.propertyTitle,
+          l?.propertyId,
+          l?.operationType,
+          l?.cityInterest,
+          l?.city
+        ]
+          .map(safeStr)
+          .join(' ')
+          .toLowerCase();
+
+      return hay.includes(q);
+    });
+  }, [leadsEnriched, leadQuery, leadStatusFilter]);
+
+  useEffect(() => {
+    // Selección default: primer lead filtrado
+    if (activeTab !== 'leads') return;
+
+    const exists = leadsFiltered.some((l: any) => l.id === selectedLeadId);
+    if (!selectedLeadId || !exists) {
+      setSelectedLeadId(leadsFiltered[0]?.id || '');
     }
-    const arr = Array.from(set);
-    arr.sort((a, b) => a.localeCompare(b));
-    return ['todos', ...arr];
-  }, [leads]);
-
-  const filteredLeads = useMemo(() => {
-    const s = leadSearch.trim().toLowerCase();
-    const list = (leads as any[])
-      .filter(l => {
-        const name = String(l?.name || '').toLowerCase();
-        const phone = String(l?.phone || '');
-        const email = String(l?.email || '').toLowerCase();
-        const message = String(l?.message || l?.text || '').toLowerCase();
-
-        const matchSearch =
-          !s ||
-          name.includes(s) ||
-          phone.includes(s) ||
-          email.includes(s) ||
-          message.includes(s);
-
-        const matchStatus = leadStatusFilter === 'todos' || String(l?.status || '') === leadStatusFilter;
-
-        return matchSearch && matchStatus;
-      })
-      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-
-    return list as Lead[];
-  }, [leads, leadSearch, leadStatusFilter]);
+  }, [activeTab, leadsFiltered, selectedLeadId]);
 
   const selectedLead = useMemo(() => {
-    return (filteredLeads as any[]).find(l => l.id === selectedLeadId) || (filteredLeads as any[])[0] || null;
-  }, [filteredLeads, selectedLeadId]);
+    return leadsFiltered.find((l: any) => l.id === selectedLeadId) || null;
+  }, [leadsFiltered, selectedLeadId]);
 
-  const formatDateTime = (iso?: string) => {
-    if (!iso) return '';
+  const setLeadStatus = async (leadId: string, status: LeadStatusUI) => {
+    // UI optimistic
+    setLeadStatusMap(prev => ({ ...prev, [leadId]: status }));
+
+    // Si tu apiService algún día tiene endpoint, aquí lo intentamos sin romper nada:
     try {
-      return new Date(iso).toLocaleString();
-    } catch {
-      return '';
+      const anyApi = apiService as any;
+      if (typeof anyApi.updateLeadStatus === 'function') {
+        await anyApi.updateLeadStatus(leadId, status);
+      } else if (typeof anyApi.saveLead === 'function') {
+        await anyApi.saveLead({ id: leadId, status });
+      } else if (typeof anyApi.updateLead === 'function') {
+        await anyApi.updateLead(leadId, { status });
+      }
+    } catch (e) {
+      // No rompemos UI: mantenemos local, pero dejamos rastro en consola
+      console.warn('No se pudo persistir status en backend. Se mantiene localStorage.', e);
     }
   };
 
-  const waLink = (phoneRaw?: string, text?: string) => {
-    const p = String(phoneRaw || '').replace(/[^\d]/g, '');
-    const msg = encodeURIComponent(text || 'Hola, vi tu información y quiero darte seguimiento 🙂');
-    if (!p) return '#';
-    return `https://wa.me/${p}?text=${msg}`;
+  const openWhatsApp = (phoneRaw: any) => {
+    const phone = safeStr(phoneRaw).replace(/[^\d]/g, '');
+    if (!phone) return;
+    window.open(`https://wa.me/${phone}`, '_blank', 'noopener,noreferrer');
   };
 
-  const telLink = (phoneRaw?: string) => {
-    const p = String(phoneRaw || '').replace(/[^\d+]/g, '');
-    if (!p) return '#';
-    return `tel:${p}`;
+  const callPhone = (phoneRaw: any) => {
+    const phone = safeStr(phoneRaw).replace(/[^\d+]/g, '');
+    if (!phone) return;
+    window.location.href = `tel:${phone}`;
   };
 
+  // ===== RENDER =====
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center dark:bg-gray-900 dark:text-white">
@@ -509,7 +573,7 @@ const AdminDashboard: React.FC = () => {
           </button>
         </div>
 
-        {/* -------------------- PROPERTIES -------------------- */}
+        {/* ===================== PROPIEDADES ===================== */}
         {activeTab === 'properties' && (
           <div>
             <div className="flex justify-between items-center mb-8">
@@ -529,21 +593,21 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 gap-4">
-              {properties.map(p => (
+              {properties.map((p: any) => (
                 <div
-                  key={(p as any).id}
+                  key={p.id}
                   className="bg-white dark:bg-gray-800 p-4 rounded-2xl flex items-center justify-between border dark:border-gray-700 shadow-sm"
                 >
                   <div className="flex items-center gap-4 min-w-0">
                     <img
-                      src={(p as any).images?.[0] || ''}
+                      src={p.images?.[0] || ''}
                       className="w-12 h-12 rounded-lg object-cover bg-gray-100"
                       alt=""
                     />
                     <div className="min-w-0">
-                      <div className="font-bold dark:text-white truncate">{(p as any).title}</div>
+                      <div className="font-bold dark:text-white truncate">{p.title}</div>
                       <div className="text-xs text-gray-500 truncate">
-                        {(p as any).city} · {(p as any).zone} · {(p as any).isPublished ? 'Publicada' : 'Oculta'}
+                        {p.city} · {p.zone} · {p.isPublished ? 'Publicada' : 'Oculta'}
                       </div>
                     </div>
                   </div>
@@ -557,7 +621,7 @@ const AdminDashboard: React.FC = () => {
                       <Edit size={18} />
                     </button>
                     <button
-                      onClick={() => setConfirmDelete({ type: 'property', id: (p as any).id })}
+                      onClick={() => setConfirmDelete({ type: 'property', id: p.id })}
                       className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-white/5 rounded-lg"
                       title="Eliminar"
                     >
@@ -576,7 +640,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* -------------------- REVIEWS -------------------- */}
+        {/* ===================== RESEÑAS ===================== */}
         {activeTab === 'reviews' && (
           <div>
             <div className="flex justify-between items-center mb-8">
@@ -616,7 +680,11 @@ const AdminDashboard: React.FC = () => {
                           <Star
                             key={i}
                             size={14}
-                            className={i < (t.rating || 0) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}
+                            className={
+                              i < (t.rating || 0)
+                                ? 'text-yellow-400 fill-yellow-400'
+                                : 'text-gray-300'
+                            }
                           />
                         ))}
                       </div>
@@ -664,7 +732,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* -------------------- LEADS (UPDATED) -------------------- */}
+        {/* ===================== LEADS (ACTUALIZADO) ===================== */}
         {activeTab === 'leads' && (
           <div>
             <div className="flex items-center justify-between mb-8">
@@ -678,73 +746,63 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Lista */}
-              <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-4 shadow-sm">
+              {/* Left: list */}
+              <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-5 shadow-sm">
                 <div className="flex flex-col md:flex-row gap-3 mb-4">
                   <input
-                    value={leadSearch}
-                    onChange={e => setLeadSearch(e.target.value)}
-                    placeholder="Buscar lead (nombre, tel, correo, mensaje...)"
-                    className="w-full p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
+                    className="flex-1 p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
+                    placeholder="Buscar lead (nombre, tel, mensaje...)"
+                    value={leadQuery}
+                    onChange={e => setLeadQuery(e.target.value)}
                   />
-
                   <select
+                    className="md:w-56 p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
                     value={leadStatusFilter}
-                    onChange={e => setLeadStatusFilter(e.target.value)}
-                    className="w-full md:w-56 p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
-                    disabled={leadStatusOptions.length <= 1}
-                    title={leadStatusOptions.length <= 1 ? 'No hay estatus disponibles en tus leads' : 'Filtrar por estatus'}
+                    onChange={e => setLeadStatusFilter(e.target.value as any)}
                   >
-                    <option value="todos">Estatus: Todos</option>
-                    {leadStatusOptions
-                      .filter(s => s !== 'todos')
-                      .map(s => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
+                    <option value="Todos">Estatus: Todos</option>
+                    {LEAD_STATUS.map(s => (
+                      <option key={s} value={s}>
+                        Estatus: {s}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
-                <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">
-                  {filteredLeads.map((l: any) => {
-                    const isSelected = (selectedLead?.id || null) === l.id;
+                <div className="space-y-3">
+                  {leadsFiltered.map((l: any) => {
+                    const isSel = l.id === selectedLeadId;
+                    const badge = statusBadge(l.__statusUI);
+
                     return (
                       <button
                         key={l.id}
                         onClick={() => setSelectedLeadId(l.id)}
-                        className={`w-full text-left p-4 rounded-2xl border transition-all ${isSelected
+                        className={`w-full text-left p-4 rounded-2xl border transition-all ${isSel
                             ? 'border-[#800020] bg-[#800020]/5'
-                            : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5'
+                            : 'border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5'
                           }`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="font-extrabold dark:text-white truncate">{l.name || 'Sin nombre'}</div>
-                            <div className="text-sm text-gray-500 truncate">{l.phone || 'Sin teléfono'}</div>
-                            {l.createdAt && (
-                              <div className="text-[11px] text-gray-400 mt-1">{formatDateTime(l.createdAt)}</div>
-                            )}
-                            {(l.message || l.text) && (
-                              <div className="text-sm text-gray-600 dark:text-gray-300 mt-2 line-clamp-2">
-                                {l.message || l.text}
+                            <div className="font-extrabold dark:text-white truncate">{safeStr(l.name) || 'Sin nombre'}</div>
+                            <div className="text-sm text-gray-500 truncate">{safeStr(l.phone)}</div>
+                            <div className="text-[11px] text-gray-400 mt-1">{safeDateLabel(l.createdAt)}</div>
+                            {safeStr(l.message) && (
+                              <div className="text-xs text-gray-500 mt-2 line-clamp-2">
+                                {safeStr(l.message)}
                               </div>
                             )}
                           </div>
-
-                          <div className="shrink-0 flex items-center gap-2">
-                            {l.status && (
-                              <span className="text-[10px] px-2 py-1 rounded-full font-bold uppercase tracking-wide bg-gray-100 dark:bg-gray-700 dark:text-white">
-                                {String(l.status)}
-                              </span>
-                            )}
-                          </div>
+                          <span className={`shrink-0 text-[10px] font-extrabold uppercase px-2 py-1 rounded-full border ${badge.cls}`}>
+                            {badge.label}
+                          </span>
                         </div>
                       </button>
                     );
                   })}
 
-                  {filteredLeads.length === 0 && (
+                  {leadsFiltered.length === 0 && (
                     <div className="text-center text-gray-500 py-16 border-2 border-dashed rounded-3xl">
                       No hay leads con ese filtro.
                     </div>
@@ -752,31 +810,25 @@ const AdminDashboard: React.FC = () => {
                 </div>
               </div>
 
-              {/* Detalle */}
+              {/* Right: detail */}
               <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 shadow-sm">
                 {!selectedLead ? (
-                  <div className="text-center text-gray-500 py-20">
+                  <div className="text-center text-gray-500 py-20 border-2 border-dashed rounded-3xl">
                     Selecciona un lead para ver el detalle.
                   </div>
                 ) : (
-                  <div className="space-y-5">
-                    <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <div className="text-2xl font-extrabold dark:text-white truncate">
-                          {(selectedLead as any).name || 'Sin nombre'}
+                          {safeStr((selectedLead as any).name) || 'Sin nombre'}
                         </div>
-                        <div className="text-sm text-gray-500">
-                          {(selectedLead as any).phone || 'Sin teléfono'}
-                        </div>
-                        {(selectedLead as any).createdAt && (
-                          <div className="text-[11px] text-gray-400 mt-1">
-                            {formatDateTime((selectedLead as any).createdAt)}
-                          </div>
-                        )}
+                        <div className="text-gray-500">{safeStr((selectedLead as any).phone)}</div>
+                        <div className="text-xs text-gray-400 mt-1">{safeDateLabel((selectedLead as any).createdAt)}</div>
                       </div>
 
                       <button
-                        onClick={() => setConfirmDelete({ type: 'lead', id: (selectedLead as any).id })}
+                        onClick={() => setConfirmDelete({ type: 'lead', id: safeStr((selectedLead as any).id) })}
                         className="p-2 rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                         title="Eliminar lead"
                       >
@@ -784,51 +836,64 @@ const AdminDashboard: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* Acciones (sin Correo) */}
-                    <div className="flex flex-wrap gap-3">
-                      <a
-                        href={waLink((selectedLead as any).phone, (selectedLead as any).message || (selectedLead as any).text)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-4 py-2 rounded-xl font-bold bg-green-100 text-green-700 hover:bg-green-200"
+                    {/* actions */}
+                    <div className="flex flex-wrap gap-3 mt-5">
+                      <button
+                        onClick={() => openWhatsApp((selectedLead as any).phone)}
+                        className="px-5 py-2.5 rounded-2xl font-extrabold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200"
                       >
                         WhatsApp
-                      </a>
-
-                      <a
-                        href={telLink((selectedLead as any).phone)}
-                        className="px-4 py-2 rounded-xl font-bold bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600"
+                      </button>
+                      <button
+                        onClick={() => callPhone((selectedLead as any).phone)}
+                        className="px-5 py-2.5 rounded-2xl font-extrabold bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-950"
                       >
                         Llamar
-                      </a>
+                      </button>
                     </div>
 
-                    {/* Mensaje */}
-                    <div className="border dark:border-gray-700 rounded-2xl p-4">
-                      <div className="text-xs font-bold text-gray-500 mb-2">Mensaje</div>
-                      <div className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
-                        {(selectedLead as any).message || (selectedLead as any).text || '—'}
+                    {/* status selector */}
+                    <div className="mt-5">
+                      <label className="text-sm font-extrabold dark:text-white">
+                        Estatus de seguimiento
+                        <select
+                          className="mt-2 w-full p-3 rounded-2xl border dark:border-gray-700 dark:bg-gray-900"
+                          value={(selectedLead as any).__statusUI}
+                          onChange={e => setLeadStatus(safeStr((selectedLead as any).id), e.target.value as LeadStatusUI)}
+                        >
+                          {LEAD_STATUS.map(s => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    {/* message */}
+                    <div className="mt-6 border dark:border-gray-700 rounded-2xl p-4">
+                      <div className="text-xs font-extrabold text-gray-500 uppercase tracking-wider">Mensaje</div>
+                      <div className="mt-2 text-gray-800 dark:text-gray-200">
+                        {safeStr((selectedLead as any).message) || '—'}
                       </div>
                     </div>
 
-                    {/* Campos (sin Fuente) */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* extra info (SIN Fuente / SIN Correo) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
                       <div className="border dark:border-gray-700 rounded-2xl p-4">
-                        <div className="text-xs font-bold text-gray-500 mb-2">Ciudad interés</div>
-                        <div className="font-semibold dark:text-white">
-                          {(selectedLead as any).cityInterest || (selectedLead as any).city || '—'}
+                        <div className="text-xs font-extrabold text-gray-500 uppercase tracking-wider">Ciudad interés</div>
+                        <div className="mt-2 font-bold dark:text-white">
+                          {safeStr((selectedLead as any).cityInterest || (selectedLead as any).city) || '—'}
                         </div>
                       </div>
 
                       <div className="border dark:border-gray-700 rounded-2xl p-4">
-                        <div className="text-xs font-bold text-gray-500 mb-2">Correo</div>
-                        <div className="font-semibold dark:text-white">
-                          {(selectedLead as any).email || '—'}
+                        <div className="text-xs font-extrabold text-gray-500 uppercase tracking-wider">Tipo de operación</div>
+                        <div className="mt-2 font-bold dark:text-white">
+                          {safeStr((selectedLead as any).operationType) || '—'}
                         </div>
                       </div>
                     </div>
-
-                    {/* Nota/leyenda eliminada a propósito */}
                   </div>
                 )}
               </div>
@@ -836,7 +901,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* -------------------- PROFILE -------------------- */}
+        {/* ===================== PERFIL ===================== */}
         {activeTab === 'profile' && profile && (
           <div className="max-w-3xl">
             <div className="flex items-center justify-between mb-6">
@@ -850,9 +915,7 @@ const AdminDashboard: React.FC = () => {
               </button>
             </div>
 
-            {profileMsg && (
-              <div className="mb-4 text-sm font-semibold text-[#800020]">{profileMsg}</div>
-            )}
+            {profileMsg && <div className="mb-4 text-sm font-semibold text-[#800020]">{profileMsg}</div>}
 
             <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 space-y-4 shadow-sm">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -953,18 +1016,17 @@ const AdminDashboard: React.FC = () => {
         )}
       </main>
 
-      {/* MODAL: Crear / Editar Propiedad */}
+      {/* ===================== MODAL: Crear / Editar Propiedad ===================== */}
       {isEditing && (
         <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-900 w-full max-w-4xl rounded-3xl shadow-2xl border dark:border-gray-800 overflow-hidden">
-            {/* header */}
             <div className="px-6 py-4 border-b dark:border-gray-800 flex items-center justify-between">
               <div className="min-w-0">
                 <h3 className="text-lg md:text-xl font-extrabold dark:text-white truncate">
-                  {(currentProp as any)?.id ? 'Editar Propiedad' : 'Nueva Propiedad'}
+                  {currentProp?.id ? 'Editar Propiedad' : 'Nueva Propiedad'}
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Imágenes: {(currentProp as any).images?.length || 0} · Se guardan en D1
+                  Imágenes: {currentProp.images?.length || 0} · Se guardan en D1
                 </p>
               </div>
               <button
@@ -976,7 +1038,6 @@ const AdminDashboard: React.FC = () => {
               </button>
             </div>
 
-            {/* body scroll */}
             <div className="max-h-[80vh] overflow-y-auto p-6">
               {formError && (
                 <div className="mb-4 text-sm font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/40 rounded-xl p-3">
@@ -989,8 +1050,8 @@ const AdminDashboard: React.FC = () => {
                   Título
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).title}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), title: e.target.value }))}
+                    value={currentProp.title}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, title: e.target.value }))}
                     placeholder="Ej. Casa en Santa Fe"
                   />
                 </label>
@@ -999,8 +1060,8 @@ const AdminDashboard: React.FC = () => {
                   Ciudad
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).city}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), city: e.target.value as City }))}
+                    value={currentProp.city}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, city: e.target.value as City }))}
                   >
                     {CITIES.map(c => (
                       <option key={c} value={c}>
@@ -1014,8 +1075,8 @@ const AdminDashboard: React.FC = () => {
                   Zona
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).zone}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), zone: e.target.value }))}
+                    value={currentProp.zone}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, zone: e.target.value }))}
                     placeholder="Ej. Santa Fe"
                   />
                 </label>
@@ -1025,8 +1086,8 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).price}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), price: toNum(e.target.value) }))}
+                    value={currentProp.price}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, price: toNum(e.target.value) }))}
                     min={0}
                   />
                 </label>
@@ -1035,9 +1096,9 @@ const AdminDashboard: React.FC = () => {
                   Moneda
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).currency}
+                    value={currentProp.currency}
                     onChange={e =>
-                      setCurrentProp(prev => ({ ...(prev as any), currency: e.target.value as 'MXN' | 'USD' }))
+                      setCurrentProp(prev => ({ ...prev, currency: e.target.value as 'MXN' | 'USD' }))
                     }
                   >
                     <option value="MXN">MXN</option>
@@ -1050,10 +1111,10 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).valuation ?? ''}
+                    value={currentProp.valuation ?? ''}
                     onChange={e =>
                       setCurrentProp(prev => ({
-                        ...(prev as any),
+                        ...prev,
                         valuation: e.target.value === '' ? undefined : toNum(e.target.value)
                       }))
                     }
@@ -1065,8 +1126,8 @@ const AdminDashboard: React.FC = () => {
                   Tipo
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).type}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), type: e.target.value as PropertyType }))}
+                    value={currentProp.type}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, type: e.target.value as PropertyType }))}
                   >
                     {TYPES.map(t => (
                       <option key={t} value={t}>
@@ -1080,8 +1141,10 @@ const AdminDashboard: React.FC = () => {
                   Estatus
                   <select
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).status}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), status: e.target.value as PropertyStatus }))}
+                    value={currentProp.status}
+                    onChange={e =>
+                      setCurrentProp(prev => ({ ...prev, status: e.target.value as PropertyStatus }))
+                    }
                   >
                     {STATUS.map(s => (
                       <option key={s} value={s}>
@@ -1096,8 +1159,8 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).bedrooms}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), bedrooms: toInt(e.target.value) }))}
+                    value={currentProp.bedrooms}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, bedrooms: toInt(e.target.value) }))}
                     min={0}
                   />
                 </label>
@@ -1107,8 +1170,8 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).bathrooms}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), bathrooms: toInt(e.target.value) }))}
+                    value={currentProp.bathrooms}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, bathrooms: toInt(e.target.value) }))}
                     min={0}
                   />
                 </label>
@@ -1118,8 +1181,8 @@ const AdminDashboard: React.FC = () => {
                   <input
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).parking}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), parking: toInt(e.target.value) }))}
+                    value={currentProp.parking}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, parking: toInt(e.target.value) }))}
                     min={0}
                   />
                 </label>
@@ -1128,8 +1191,8 @@ const AdminDashboard: React.FC = () => {
                   Descripción
                   <textarea
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950 min-h-[140px]"
-                    value={(currentProp as any).description}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), description: e.target.value }))}
+                    value={currentProp.description}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, description: e.target.value }))}
                     placeholder="Describe la propiedad..."
                   />
                 </label>
@@ -1148,8 +1211,8 @@ const AdminDashboard: React.FC = () => {
                   Video URL (opcional)
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).videoUrl || ''}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), videoUrl: e.target.value }))}
+                    value={currentProp.videoUrl || ''}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, videoUrl: e.target.value }))}
                     placeholder="https://..."
                   />
                 </label>
@@ -1158,14 +1221,13 @@ const AdminDashboard: React.FC = () => {
                   Maps Link (opcional)
                   <input
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
-                    value={(currentProp as any).mapsLink || ''}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), mapsLink: e.target.value }))}
+                    value={currentProp.mapsLink || ''}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, mapsLink: e.target.value }))}
                     placeholder="https://maps.google.com/..."
                   />
                 </label>
               </div>
 
-              {/* IMÁGENES */}
               <div className="mt-6 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-gray-800 rounded-3xl p-5">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div>
@@ -1187,7 +1249,7 @@ const AdminDashboard: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {((currentProp as any).images || []).map((img: string, idx: number) => (
+                  {(currentProp.images || []).map((img, idx) => (
                     <div
                       key={`${idx}-${img?.slice?.(0, 20) || 'img'}`}
                       className="relative rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950"
@@ -1223,15 +1285,14 @@ const AdminDashboard: React.FC = () => {
                 <label className="mt-4 inline-flex items-center gap-2 text-sm font-semibold dark:text-white">
                   <input
                     type="checkbox"
-                    checked={Boolean((currentProp as any).isPublished)}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), isPublished: e.target.checked }))}
+                    checked={Boolean(currentProp.isPublished)}
+                    onChange={e => setCurrentProp(prev => ({ ...prev, isPublished: e.target.checked }))}
                   />
                   Publicada
                 </label>
               </div>
             </div>
 
-            {/* footer */}
             <div className="px-6 py-4 border-t dark:border-gray-800 flex items-center justify-end gap-3">
               <button
                 onClick={closePropertyModal}
@@ -1251,7 +1312,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL CONFIRM DELETE */}
+      {/* ===================== MODAL CONFIRM DELETE ===================== */}
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md p-8 text-center animate-in zoom-in duration-200">
