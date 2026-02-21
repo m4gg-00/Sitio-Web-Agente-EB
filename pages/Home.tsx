@@ -30,7 +30,7 @@ const Home: React.FC = () => {
 
         if (props.status === 'fulfilled') setFeatured(props.value.slice(0, 3));
         if (prof.status === 'fulfilled') setProfile(prof.value);
-        
+
         // Fallback para testimonios
         if (tests.status === 'fulfilled' && tests.value.length > 0) {
           setTestimonials(tests.value);
@@ -113,7 +113,7 @@ const Home: React.FC = () => {
             <h2 className="text-3xl font-bold dark:text-white uppercase mb-4">Lo que dicen mis clientes</h2>
             <p className="text-gray-500">Historias de éxito y confianza.</p>
           </div>
-          
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-16">
             <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8">
               {testimonials.map((t) => (
@@ -156,8 +156,8 @@ const Home: React.FC = () => {
       <section className="py-20 px-4">
         <div className="max-w-5xl mx-auto bg-[#111827] text-white p-12 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-8 text-center md:text-left">
           <div>
-            <h2 className="text-3xl font-bold mb-2">¿Vendes o compras?</h2>
-            <p className="text-gray-400">Hagamos una valoración gratuita hoy mismo.</p>
+            <h2 className="text-3xl font-bold mb-2">¿Buscas vender, comprar o traspasar tu propiedad?</h2>
+            <p className="text-gray-400">Hagamos una valoración gratuita hoy mismo y tracemos la mejor opción para ti.</p>
           </div>
           <Link to="/contacto#formulario" className="bg-[#800020] px-10 py-4 rounded-xl font-bold hover:bg-[#600018]">Solicitar Asesoría</Link>
         </div>
