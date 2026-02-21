@@ -45,6 +45,58 @@ const toInt = (v: any) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * ✅ FIX PRESUPUESTO:
+ * En D1 "budget" se guarda como TEXTO ya formateado, ej: "$800,000.00 (MXN)"
+ * Si lo tratamos como número da NaN y cae a 0.
+ * Estas funciones:
+ * - Si viene string -> se muestra tal cual
+ * - Si viene number -> lo formatea como moneda
+ */
+const parseBudgetString = (raw: any): { amount?: number; currency?: string; text?: string } => {
+  if (raw === null || raw === undefined) return {};
+  if (typeof raw === 'number' && Number.isFinite(raw)) return { amount: raw };
+
+  const s = String(raw).trim();
+  if (!s) return {};
+
+  // (MXN)
+  const currencyMatch = s.match(/\(([^)]+)\)\s*$/);
+  const currency = currencyMatch?.[1]?.trim();
+
+  // extraer número de "$800,000.00 (MXN)" -> "800000.00"
+  const num = s
+    .replace(/\([^)]+\)\s*$/, '')
+    .replace(/[^\d.,-]/g, '')
+    .replace(/,/g, '');
+
+  const amount = Number(num);
+  if (Number.isFinite(amount)) {
+    return { amount, currency, text: s };
+  }
+
+  return { text: s, currency };
+};
+
+const formatBudget = (budget: any): string => {
+  if (budget === undefined || budget === null) return '—';
+  if (typeof budget === 'string' && budget.trim()) return budget; // respeta texto ya formateado
+
+  const { amount, currency } = parseBudgetString(budget);
+  if (amount === undefined) return '—';
+
+  const cur = (currency || 'MXN').toUpperCase();
+  try {
+    return new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency: cur === 'USD' ? 'USD' : 'MXN',
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${cur}`;
+  }
+};
+
 const emptyPropertyDraft = (): Property => ({
   id: '',
   title: '',
@@ -504,7 +556,10 @@ const AdminDashboard: React.FC = () => {
           </nav>
 
           <div className="p-4 border-t border-white/10">
-            <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-lg text-red-400 hover:bg-red-500/10">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 p-3 rounded-lg text-red-400 hover:bg-red-500/10"
+            >
               <LogOut size={20} /> <span>Cerrar Sesión</span>
             </button>
           </div>
@@ -545,11 +600,7 @@ const AdminDashboard: React.FC = () => {
                   className="bg-white dark:bg-gray-800 p-4 rounded-2xl flex items-center justify-between border dark:border-gray-700 shadow-sm"
                 >
                   <div className="flex items-center gap-4 min-w-0">
-                    <img
-                      src={(p as any).images?.[0] || ''}
-                      className="w-12 h-12 rounded-lg object-cover bg-gray-100"
-                      alt=""
-                    />
+                    <img src={(p as any).images?.[0] || ''} className="w-12 h-12 rounded-lg object-cover bg-gray-100" alt="" />
                     <div className="min-w-0">
                       <div className="font-bold dark:text-white truncate">{(p as any).title}</div>
                       <div className="text-xs text-gray-500 truncate">
@@ -591,10 +642,7 @@ const AdminDashboard: React.FC = () => {
           <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold dark:text-white">Interesados</h2>
-              <button
-                onClick={refreshData}
-                className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2"
-              >
+              <button onClick={refreshData} className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2">
                 <RefreshCw size={16} /> Actualizar
               </button>
             </div>
@@ -631,9 +679,7 @@ const AdminDashboard: React.FC = () => {
                       <button
                         key={l.id}
                         onClick={() => setSelectedLeadId(l.id)}
-                        className={`w-full text-left p-4 rounded-2xl border transition-all ${isSelected
-                          ? 'border-[#800020] bg-[#800020]/5'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-[#800020]/40'
+                        className={`w-full text-left p-4 rounded-2xl border transition-all ${isSelected ? 'border-[#800020] bg-[#800020]/5' : 'border-gray-200 dark:border-gray-700 hover:border-[#800020]/40'
                           }`}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -647,29 +693,25 @@ const AdminDashboard: React.FC = () => {
 
                           <span
                             className={`text-[10px] px-2 py-1 rounded-full font-extrabold uppercase tracking-wider ${status === 'nuevo'
-                              ? 'bg-[#800020] text-white'
-                              : status === 'contactado'
-                                ? 'bg-blue-100 text-blue-700'
-                                : status === 'seguimiento'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-green-100 text-green-800'
+                                ? 'bg-[#800020] text-white'
+                                : status === 'contactado'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : status === 'seguimiento'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-green-100 text-green-800'
                               }`}
                           >
                             {LEAD_STATUS.find(s => s.value === status)?.label || 'Nuevo'}
                           </span>
                         </div>
 
-                        <div className="text-sm text-gray-600 dark:text-gray-300 mt-3 line-clamp-2">
-                          {(l as any).message || '—'}
-                        </div>
+                        <div className="text-sm text-gray-600 dark:text-gray-300 mt-3 line-clamp-2">{(l as any).message || '—'}</div>
                       </button>
                     );
                   })}
 
                   {filteredLeads.length === 0 && (
-                    <div className="text-center text-gray-500 py-16 border-2 border-dashed rounded-3xl">
-                      No hay leads con ese filtro.
-                    </div>
+                    <div className="text-center text-gray-500 py-16 border-2 border-dashed rounded-3xl">No hay leads con ese filtro.</div>
                   )}
                 </div>
               </div>
@@ -677,9 +719,7 @@ const AdminDashboard: React.FC = () => {
               {/* Right: detail */}
               <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-3xl p-6 shadow-sm">
                 {!selectedLead ? (
-                  <div className="text-center text-gray-500 py-20 border-2 border-dashed rounded-3xl">
-                    Selecciona un lead para ver el detalle.
-                  </div>
+                  <div className="text-center text-gray-500 py-20 border-2 border-dashed rounded-3xl">Selecciona un lead para ver el detalle.</div>
                 ) : (
                   <>
                     <div className="flex items-start justify-between gap-3">
@@ -736,40 +776,27 @@ const AdminDashboard: React.FC = () => {
 
                     {/* message */}
                     <div className="mt-6 rounded-3xl border border-gray-200 dark:border-gray-700 p-5">
-                      <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase mb-2">
-                        Mensaje
-                      </div>
+                      <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase mb-2">Mensaje</div>
                       <div className="text-gray-900 dark:text-white">{(selectedLead as any).message || '—'}</div>
                     </div>
 
                     {/* meta */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
                       <div className="rounded-3xl border border-gray-200 dark:border-gray-700 p-5">
-                        <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase mb-2">
-                          Ciudad interés
-                        </div>
+                        <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase mb-2">Ciudad interés</div>
                         <div className="font-extrabold dark:text-white">{(selectedLead as any).city || '—'}</div>
                       </div>
 
                       <div className="rounded-3xl border border-gray-200 dark:border-gray-700 p-5">
-                        <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase mb-2">
-                          Tipo de operación
-                        </div>
+                        <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase mb-2">Tipo de operación</div>
                         <div className="font-extrabold dark:text-white">{(selectedLead as any).operationType || '—'}</div>
                       </div>
 
                       <div className="rounded-3xl border border-gray-200 dark:border-gray-700 p-5">
-                        <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase mb-2">
-                          Presupuesto
-                        </div>
+                        <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase mb-2">Presupuesto</div>
                         <div className="font-extrabold dark:text-white">
-                          {(() => {
-                            const budget = (selectedLead as any).budget;
-                            const cur = (selectedLead as any).currency || 'MXN';
-                            if (budget === undefined || budget === null || String(budget).trim() === '') return '—';
-                            const n = toNum(budget);
-                            return `${n.toLocaleString()} ${cur}`;
-                          })()}
+                          {/* ✅ FIX: mostrar presupuesto real aunque venga como "$800,000.00 (MXN)" */}
+                          {formatBudget((selectedLead as any).budget)}
                         </div>
                       </div>
                     </div>
@@ -785,10 +812,7 @@ const AdminDashboard: React.FC = () => {
           <div>
             <div className="flex justify-between items-center mb-8">
               <h2 className="text-2xl font-bold dark:text-white uppercase tracking-tighter">Moderación de Reseñas (KV)</h2>
-              <button
-                onClick={refreshData}
-                className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2"
-              >
+              <button onClick={refreshData} className="text-[#800020] dark:text-[#ff3b5c] font-bold text-sm flex items-center gap-2">
                 <RefreshCw size={16} /> Actualizar
               </button>
             </div>
@@ -797,10 +821,7 @@ const AdminDashboard: React.FC = () => {
               {testimonials.map((t: any) => (
                 <div
                   key={t.id}
-                  className={`p-6 rounded-3xl border shadow-sm transition-all ${t.status === 'deleted' ? 'opacity-50 grayscale' : ''
-                    } ${t.approved
-                      ? 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700'
-                      : 'bg-[#800020]/5 dark:bg-[#800020]/10 border-[#800020]/20'
+                  className={`p-6 rounded-3xl border shadow-sm transition-all ${t.status === 'deleted' ? 'opacity-50 grayscale' : ''} ${t.approved ? 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700' : 'bg-[#800020]/5 dark:bg-[#800020]/10 border-[#800020]/20'
                     }`}
                 >
                   <div className="flex justify-between items-start mb-4">
@@ -815,16 +836,10 @@ const AdminDashboard: React.FC = () => {
                       </div>
                       <div className="flex gap-1 py-1">
                         {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            size={14}
-                            className={i < (t.rating || 0) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}
-                          />
+                          <Star key={i} size={14} className={i < (t.rating || 0) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'} />
                         ))}
                       </div>
-                      <div className="text-[10px] text-gray-400 font-mono">
-                        {t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}
-                      </div>
+                      <div className="text-[10px] text-gray-400 font-mono">{t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}</div>
                     </div>
 
                     {!t.approved && t.status !== 'deleted' && (
@@ -893,12 +908,7 @@ const AdminDashboard: React.FC = () => {
 
                 <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#800020] text-white font-bold cursor-pointer hover:bg-[#600018]">
                   {uploadingProfilePic ? 'Subiendo...' : 'Subir foto'}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={e => handleUploadProfilePic(e.target.files)}
-                  />
+                  <input type="file" accept="image/*" className="hidden" onChange={e => handleUploadProfilePic(e.target.files)} />
                 </label>
 
                 {profile.profilePic && (
@@ -1020,13 +1030,11 @@ const AdminDashboard: React.FC = () => {
                 <h3 className="text-lg md:text-xl font-extrabold dark:text-white truncate">
                   {(currentProp as any)?.id ? 'Editar Propiedad' : 'Nueva Propiedad'}
                 </h3>
-                <p className="text-xs text-gray-500">Imágenes: {(currentProp as any).images?.length || 0} · Se guardan en D1</p>
+                <p className="text-xs text-gray-500">
+                  Imágenes: {(currentProp as any).images?.length || 0} · Se guardan en D1
+                </p>
               </div>
-              <button
-                onClick={closePropertyModal}
-                className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5"
-                title="Cerrar"
-              >
+              <button onClick={closePropertyModal} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5" title="Cerrar">
                 <X size={20} />
               </button>
             </div>
@@ -1104,7 +1112,9 @@ const AdminDashboard: React.FC = () => {
                     type="number"
                     className="mt-1 w-full p-3 rounded-xl border dark:border-gray-800 dark:bg-gray-950"
                     value={(currentProp as any).valuation ?? ''}
-                    onChange={e => setCurrentProp(prev => ({ ...(prev as any), valuation: e.target.value === '' ? undefined : toNum(e.target.value) } as any))}
+                    onChange={e =>
+                      setCurrentProp(prev => ({ ...(prev as any), valuation: e.target.value === '' ? undefined : toNum(e.target.value) } as any))
+                    }
                     min={0}
                   />
                 </label>
