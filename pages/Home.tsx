@@ -96,14 +96,27 @@ const Home: React.FC = () => {
       </section>
 
       {/* Services */}
-      <section className="py-20 max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8">
-        {steps.map((s, i) => (
-          <div key={i} className="p-8 bg-gray-50 dark:bg-gray-800 rounded-3xl border border-transparent hover:border-[#800020]/20 transition-all">
-            <div className="mb-4">{s.icon}</div>
-            <h3 className="font-bold text-lg mb-2 dark:text-white">{s.title}</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{s.desc}</p>
-          </div>
-        ))}
+      <section className="py-20 max-w-7xl mx-auto px-4">
+        {/* ✅ Encabezado que pediste (como la demo) */}
+        <div className="text-center max-w-3xl mx-auto mb-10">
+          <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white">
+            ¿CÓMO TE <span className="text-[#800020] dark:text-[#ff3b5c]">ACOMPAÑO</span>?
+          </h2>
+          <p className="mt-3 text-gray-600 dark:text-gray-300 text-base md:text-lg">
+            Mi metodología se basa en la confianza mutua para asegurar que cada paso sea sólido y sin sorpresas.
+          </p>
+        </div>
+
+        {/* Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+          {steps.map((s, i) => (
+            <div key={i} className="p-8 bg-gray-50 dark:bg-gray-800 rounded-3xl border border-transparent hover:border-[#800020]/20 transition-all">
+              <div className="mb-4">{s.icon}</div>
+              <h3 className="font-bold text-lg mb-2 dark:text-white">{s.title}</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{s.desc}</p>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* Testimonials */}
